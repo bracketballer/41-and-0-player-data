@@ -16,7 +16,7 @@ if [[ "${python_version}" != 3.1[2-9] && "${python_version}" != 3.[2-9][0-9] ]];
 fi
 
 cd "${REPO_ROOT}"
-if [[ ! -d "${VENV_DIR}" ]]; then
+if [[ ! -x "${VENV_DIR}/bin/python" || ! -x "${VENV_DIR}/bin/pip" ]]; then
 	if ! "${PYTHON_BIN}" -m venv "${VENV_DIR}"; then
 		echo "setup-local: Python venv support is required (install python3-venv)." >&2
 		exit 1
@@ -33,4 +33,24 @@ fi
 echo "Update database, CBBD, and optional Spaces credentials before running jobs."
 
 git config core.hooksPath .githooks
+
+# On a fresh local V34 database this downloads and restores the newest verified
+# development snapshot. Existing databases and incomplete prerequisites are
+# reported and left untouched, so rerunning setup is safe. Schema-dependent
+# releases are migrated from their pinned Fastify revisions by the sync hook.
+set +e
+"${VENV_DIR}/bin/python" -m scripts.bootstrap_development_database
+bootstrap_status=$?
+set -e
+if [[ "${bootstrap_status}" -ne 0 && "${bootstrap_status}" -ne 10 ]]; then
+	exit "${bootstrap_status}"
+fi
+
+# Apply any descriptor-backed schema migrations and deltas that were committed
+# after the newest full snapshot. The same guarded command is used by all Git
+# update hooks.
+if [[ "${bootstrap_status}" -eq 0 ]]; then
+	"${REPO_ROOT}/.githooks/run-pending-data-releases"
+fi
+
 echo "Local setup complete. Use ${VENV_DIR}/bin/python for pipeline commands."

@@ -1,0 +1,33 @@
+{
+  "format_version": 1,
+  "dataset": "ap_top25_vt_rosters_lineups",
+  "release_version": "ranked-rosters-2026-08-23.1",
+  "season": 2026,
+  "objects": {
+    "archive": "data-releases/v1/ap_top25_vt_rosters_lineups/2026/ranked-rosters-2026-08-23.1/ranked-rosters-2026-08-23.1.tar.gz",
+    "checksum": "data-releases/v1/ap_top25_vt_rosters_lineups/2026/ranked-rosters-2026-08-23.1/ranked-rosters-2026-08-23.1.tar.gz.sha256",
+    "manifest": "data-releases/v1/ap_top25_vt_rosters_lineups/2026/ranked-rosters-2026-08-23.1/ranked-rosters-2026-08-23.1.json"
+  },
+  "expected": {
+    "archive_bytes": 2886967,
+    "archive_sha256": "ac3aecc05107339da38f4086c10cb7fb8731d4e13e7890746846209de9ad0dce",
+    "checksum_sha256": "ceedb5ecd3bb07a738543d357505339883cdb024f26e07d84a8bb7acba66fbc0",
+    "manifest_sha256": "dcc808d30aea29f729fcd9b8314b29d49b7855772ed8ebf33325323187e1b67d",
+    "candidate_sha256": "b55851d4ec42cf1b01be9134f260a50a1624dc0315783839ca0ef75e8d0456c7"
+  },
+  "flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "required_flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "row_counts": {
+    "eligible_teams": 44,
+    "roster_memberships": 675,
+    "player_seasons": 1571,
+    "games": 1254,
+    "lineups": 21580,
+    "opponent_contexts": 312
+  },
+  "pipeline_commit": "936af6afdd9620849cde66404c1acef8585453d0"
+}

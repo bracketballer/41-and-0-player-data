@@ -1,0 +1,56 @@
+{
+  "id": 9212020,
+  "team": "Bucknell",
+  "clock": "13:44",
+  "gameId": 33035,
+  "period": 2,
+  "season": 2020,
+  "teamId": 32,
+  "onFloor": [],
+  "gameType": "STD",
+  "opponent": "Holy Cross",
+  "playText": "Jimmy Sotos missed Three Point Jumper.",
+  "playType": "Three Point Jump Shot",
+  "shotInfo": {
+    "made": false,
+    "range": "three_pointer",
+    "shooter": {
+      "id": 25817,
+      "name": "Jimmy Sotos"
+    },
+    "assisted": false,
+    "location": {
+      "x": 216.2,
+      "y": 445
+    },
+    "assistedBy": {
+      "id": null,
+      "name": null
+    }
+  },
+  "sourceId": "401172855102865501",
+  "teamSeed": null,
+  "awayScore": 33,
+  "homeScore": 50,
+  "wallclock": null,
+  "conference": "Patriot",
+  "isHomeTeam": true,
+  "opponentId": 111,
+  "scoreValue": 3,
+  "seasonType": "regular",
+  "tournament": null,
+  "scoringPlay": false,
+  "gameSourceId": "401172855",
+  "opponentSeed": null,
+  "participants": [
+    {
+      "id": 25817,
+      "name": "Jimmy Sotos"
+    }
+  ],
+  "shootingPlay": true,
+  "gameStartDate": "2020-01-11T19:00:00+00:00",
+  "secondsRemaining": 824,
+  "homeWinProbability": 0.982,
+  "opponentConference": "Patriot"
+}

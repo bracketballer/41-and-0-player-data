@@ -17,7 +17,9 @@ if they are not already installed.
 
 ```bash
 ./scripts/setup-local.sh
-# edit .env with database credentials and CBBD_API_KEY
+# If prompted, edit .env, start the local database, run the Fastify baseline
+# migrations through V34, and rerun the same setup command. The managed Git
+# hook then upgrades schema-dependent releases from the pinned Fastify commit.
 ```
 
 The setup script creates `.venv`, installs the pinned dependencies and this
@@ -25,7 +27,14 @@ package in editable mode, creates `.env` from `.env.example` when needed, and
 adds any missing DigitalOcean Spaces settings to an existing `.env` without
 changing its database values. It always enforces private mode (`0600`) for
 `.env`; it never generates or retrieves secrets. Blank Spaces credentials are
-reported as a warning because Spaces is optional for local-only work.
+reported as a warning because Spaces is optional for local-only work. When a
+local database has been freshly migrated through V34 and read-only Spaces
+credentials are configured, setup downloads and verifies the newest complete
+development snapshot, restores it without replacing existing data, and then
+applies any newer checked-in data-release descriptors. Schema-dependent
+releases use the same local-only synchronization path as the Git hooks.
+Rerunning setup is safe; remote and already initialized databases are never
+restored automatically.
 
 ## Layout
 
@@ -35,6 +44,7 @@ reported as a warning because Spaces is optional for local-only work.
 | `scripts/ingest` | External API ingestion and reconciliation jobs |
 | `scripts/compute` | Shooting and defensive computation jobs |
 | `scripts/publish` | Core-data preparation and audited publication |
+| `scripts/dev_sync` | Schema-aware local post-Git database synchronization |
 | `data` | Ignored raw inputs, caches, exports, and review reports |
 | `sql/bootstrap` | Destructive local-only data bootstrap |
 | `sql/review` | Manual validation and write-back SQL |

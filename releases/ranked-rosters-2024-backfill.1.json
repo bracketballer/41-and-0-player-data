@@ -1,0 +1,33 @@
+{
+  "format_version": 1,
+  "dataset": "ap_top25_vt_rosters_lineups",
+  "release_version": "ranked-rosters-2024-backfill.1",
+  "season": 2024,
+  "objects": {
+    "archive": "data-releases/v1/ap_top25_vt_rosters_lineups/2024/ranked-rosters-2024-backfill.1/ranked-rosters-2024-backfill.1.tar.gz",
+    "checksum": "data-releases/v1/ap_top25_vt_rosters_lineups/2024/ranked-rosters-2024-backfill.1/ranked-rosters-2024-backfill.1.tar.gz.sha256",
+    "manifest": "data-releases/v1/ap_top25_vt_rosters_lineups/2024/ranked-rosters-2024-backfill.1/ranked-rosters-2024-backfill.1.json"
+  },
+  "expected": {
+    "archive_bytes": 2927157,
+    "archive_sha256": "b4166f791d4f01bc34eb32412f7ea0ce165bb44853a6b3d8ff23d61fbb2f3421",
+    "checksum_sha256": "62cb0ce5cacabc641f192c69d30d14854905bbc76e02d766d566626b82e058a9",
+    "manifest_sha256": "47c7726f1a284273817b544f14b657c75622660847a94990c035ba99f17b87d1",
+    "candidate_sha256": "c0ca9ff8baf6cc622f885828a3698f6ef1d87fabe689e6aa14805d9120940b67"
+  },
+  "flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "required_flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "row_counts": {
+    "eligible_teams": 53,
+    "roster_memberships": 854,
+    "player_seasons": 2103,
+    "games": 1500,
+    "lineups": 20428,
+    "opponent_contexts": 337
+  },
+  "pipeline_commit": "59069e00ba546866a4df8216beef34eb691c974e"
+}

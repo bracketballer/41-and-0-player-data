@@ -1,0 +1,14 @@
+#!/bin/sh
+set -u
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+
+if [ ! -x "${PYTHON_BIN}" ]; then
+	printf '%s\n' "development sync: skipped (missing .venv); run scripts/setup-local.sh" >&2
+	exit 0
+fi
+
+cd "${REPO_ROOT}" || exit 1
+exec "${PYTHON_BIN}" -m scripts.dev_sync.sync_after_git_update

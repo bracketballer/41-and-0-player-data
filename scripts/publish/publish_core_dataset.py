@@ -242,12 +242,14 @@ def publish(conn: Any, run_id: int, counts: dict[str, int]) -> None:
         cursor.execute(
             f"""
             INSERT INTO players (
-                {target_columns}, source_active, source_updated_at
+                {target_columns}, is_fantasy_eligible, source_active,
+                source_updated_at
             )
-            SELECT {source_columns}, TRUE, now()
+            SELECT {source_columns}, TRUE, TRUE, now()
             FROM core_players_source
             ON CONFLICT (id) DO UPDATE SET
                 {updates},
+                is_fantasy_eligible = TRUE,
                 source_active = TRUE,
                 source_updated_at = now()
             """
@@ -255,7 +257,14 @@ def publish(conn: Any, run_id: int, counts: dict[str, int]) -> None:
         cursor.execute(
             """
             UPDATE players player
-            SET source_active = FALSE, source_updated_at = now()
+            SET is_fantasy_eligible = FALSE,
+                source_active = EXISTS (
+                    SELECT 1
+                    FROM team_roster_memberships membership
+                    WHERE membership.player_id = player.id
+                      AND membership.source_active
+                ),
+                source_updated_at = now()
             WHERE player.source_active
               AND NOT EXISTS (
                   SELECT 1 FROM core_players_source source

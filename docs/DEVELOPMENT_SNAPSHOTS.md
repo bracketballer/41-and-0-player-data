@@ -1,10 +1,11 @@
 # Development database snapshots
 
-Development snapshots contain the player, school, defensive, shot-event, and
-derived shooting data needed by the application. They intentionally contain no
-users, games, queues, draft picks, comments, votes, labels, or published
-lineups. Synthetic application records can be created separately for workflow
-testing.
+Development snapshots contain the complete non-sensitive sports-data state
+needed by the application, including players, schools, rosters, college games,
+lineups, opponent contexts, defensive data, shot events, and derived models.
+They intentionally contain no users, application games, queues, draft picks,
+comments, votes, user labels, saved labels, or published lineups. Synthetic
+application records can be created separately for workflow testing.
 
 The snapshot format is PostgreSQL 16 custom-format, data-only, compressed with
 Zstandard. The target schema must be created by the Fastify repository's
@@ -79,12 +80,12 @@ existing archive.
 
 ```bash
 .venv/bin/python -m scripts.publish.publish_development_snapshot \
-  create --release-version 2026-08-20.1
+  create --release-version 2026-08-23.1
 
 .venv/bin/python -m scripts.publish.publish_development_snapshot \
   upload \
-  --archive data/exports/development/bracketballer-player-school-data-v34-2026-08-20.1.dump \
-  --manifest data/exports/development/bracketballer-player-school-data-v34-2026-08-20.1.dump.json
+  --archive data/exports/development/bracketballer-development-data-v34-2026-08-23.1.dump \
+  --manifest data/exports/development/bracketballer-development-data-v34-2026-08-23.1.dump.json
 ```
 
 The upload validates the archive, manifest, and checksum sidecar before making
@@ -96,8 +97,10 @@ release version when republishing an object created by an older uploader. The
 manifest records the source Flyway checksums, source commit, exact row counts,
 archive size, SHA-256, and object keys.
 
-The developer restore command discovers the newest complete release directly
-from Spaces. Give the developer a read-only, bucket-scoped Spaces key and add
+`scripts/setup-local.sh` uses the developer restore command when it finds a
+pristine, local database migrated through V34. The restore discovers the newest
+complete release directly from Spaces. Give the developer a read-only,
+bucket-scoped Spaces key and add
 the following settings to the developer's ignored `.env`:
 
 ```text
@@ -107,10 +110,17 @@ DO_SPACES_ACCESS_KEY_ID=<developer-read-key>
 DO_SPACES_SECRET_ACCESS_KEY=<developer-read-secret>
 ```
 
-The script does not require a manifest path, object key, release version, or
-download URL from the developer. It lists published manifests, downloads the
-newest complete snapshot, verifies it, restores it, and removes its temporary
-files:
+The setup and restore scripts do not require a manifest path, object key,
+release version, or download URL from the developer. They list published
+manifests, download the newest complete snapshot, verify it, restore it, and
+remove its temporary files. After configuring `.env`, starting PostgreSQL, and
+running the Fastify migrations through V34, rerun setup:
+
+```bash
+./scripts/setup-local.sh
+```
+
+The standalone restore remains available:
 
 ```bash
 .venv/bin/python scripts/restore_development_snapshot.py
@@ -133,32 +143,18 @@ still available:
   --target-database-url '<empty-target-database-url>'
 ```
 
-The restore command refuses a nonempty target, requires the target Flyway
-history and checksums to match the manifest, restores in one transaction,
-runs `ANALYZE`, and compares every allowlisted table count. It also verifies
-that all sensitive application tables remain empty.
+The restore command refuses a target containing anything beyond known Flyway
+seed data, requires the target Flyway history and checksums to match the
+manifest, restores in one transaction, runs `ANALYZE`, and compares every
+allowlisted table count. It also verifies that all sensitive application tables
+remain empty and that the seven system lineup labels remain unchanged.
 
-"Nonempty" is checked across every table in `public` (except
-`flyway_schema_history`), not just the snapshot's own allowlist. A target
-freshly migrated to V34 is not actually empty: Flyway migration
-`V28__create_lineup_labels.sql` inserts 7 static seed rows into
-`lineup_labels` as part of creating the table, and the restore's pre-flight
-check fails on it (`target database must be empty before restore:
-{'lineup_labels': 7}`). `lineup_labels` is not part of the snapshot content
-(the snapshot intentionally excludes labels, per the note above), so
-truncating it first loses nothing the restore would have provided:
-
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "TRUNCATE lineup_labels CASCADE;"
-```
-
-`CASCADE` is required because `published_lineups`, `saved_labels`,
-`lineup_votes`, and `lineup_comments` all reference `lineup_labels`; on a
-freshly migrated database those tables are empty, so the cascade is a
-no-op beyond the truncate itself. After the restore, re-run the `INSERT
-INTO lineup_labels ...` statement from the bottom of
-`V28__create_lineup_labels.sql` (in the Fastify repository) to put the 7
-seed rows back — the app's community-labels feature expects them.
+Target contents are checked across every table in `public` (except
+`flyway_schema_history`), not just the snapshot allowlist. Flyway migration V28
+creates seven system rows in `lineup_labels`; those exact seed rows are the only
+permitted pre-existing data. They are neither removed nor included in the
+archive. Any sports data, user-created label, or other application row makes an
+initial restore fail safely.
 
 Docker and native PostgreSQL servers use the same archive and restore command;
 only the target database URL and provisioning steps differ.
@@ -169,3 +165,10 @@ The explicit allowlist is maintained in
 `src/bracketballer_data/development_snapshot.py`. Adding a new sports-data
 table requires a deliberate code and test change. A snapshot archive is kept
 under ignored `data/` storage and must never be committed to Git or Git LFS.
+
+Publish a new full snapshot after a material sports-data release so new
+developers do not need to replay old deltas. Use a new immutable release
+version; setup automatically chooses the newest complete manifest. The checked-
+in data-release runner still runs afterward. It skips releases already recorded
+as published and otherwise converges the database, including recording the
+audit row when a full snapshot already contains that release's sports rows.

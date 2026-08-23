@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "audit_type": "issue-4-concern-1-implementation-test-results",
+  "generated_at_utc": "2026-08-23T23:52:00Z",
+  "repository": {
+    "branch": "4-t1-extract-and-validate-on-floor-lineup-state-from-stored-shot-payloads",
+    "head_commit": "808ff5e64047b8f9a0fc664533d5350f45e219c9",
+    "working_tree_has_uncommitted_changes": true
+  },
+  "full_test_suite": {
+    "command": "PYTHONPATH=src python -m unittest discover -s tests -v",
+    "status": "passed",
+    "tests_run": 126,
+    "failures": 0,
+    "errors": 0,
+    "duration_seconds": 0.13,
+    "suites": {
+      "test_bootstrap_development_database": 7,
+      "test_contextual_shooting": 2,
+      "test_data_release_runner": 2,
+      "test_database": 2,
+      "test_dataset_release": 3,
+      "test_defensive_characteristics": 6,
+      "test_dev_sync": 7,
+      "test_development_snapshot": 13,
+      "test_import_audit": 2,
+      "test_lineup_attribution": 21,
+      "test_lineup_source_tools": 4,
+      "test_lineup_validation": 14,
+      "test_model_release": 2,
+      "test_ranked_roster_bundle": 11,
+      "test_ranked_roster_delta": 3,
+      "test_ranked_rosters": 8,
+      "test_restore_development_snapshot": 1,
+      "test_shooting_ability": 7,
+      "test_shooting_data": 8,
+      "test_sync_env_file": 3
+    }
+  },
+  "static_checks": {
+    "compileall": {
+      "command": "PYTHONPATH=src python -m compileall -q src scripts",
+      "status": "passed",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "status": "passed",
+      "exit_code": 0
+    }
+  },
+  "temporal_validation_smoke": {
+    "status": "passed",
+    "certification": "not_certified",
+    "reason": "The smoke bundle covered Duke only; it validates the pipeline, not season-wide accuracy.",
+    "season": 2026,
+    "source_bundle": {
+      "format_version": 2,
+      "teams": [
+        "Duke"
+      ],
+      "game_player_rows": 38,
+      "substitution_rows": 1294,
+      "invalid_substitution_rows": 1
+    },
+    "database_validation": {
+      "shot_events_seen": 524922,
+      "defense": {
+        "on_floor_valid": 491065,
+        "temporal_matchable": 1156,
+        "matches": 1156,
+        "mismatches": 0,
+        "match_rate_pct": 100.0,
+        "mismatch_rate_pct": 0.0
+      },
+      "offense": {
+        "on_floor_valid": 510687,
+        "temporal_matchable": 1638,
+        "matches": 1638,
+        "mismatches": 0,
+        "match_rate_pct": 100.0,
+        "mismatch_rate_pct": 0.0
+      }
+    }
+  },
+  "independent_accuracy_audit": {
+    "status": "pending",
+    "target_events": 150,
+    "minimum_games": 20,
+    "acceptance": {
+      "minimum_independently_verifiable_events": 135,
+      "minimum_exact_five_accuracy_pct": 95.0,
+      "minimum_wilson_95_lower_bound_pct": 90.0,
+      "systematic_substitution_boundary_failure": false
+    },
+    "note": "No independent accuracy claim is made until official records or timestamped video annotations are completed."
+  },
+  "artifacts": {
+    "implementation_doc": "docs/LINEUP_ATTRIBUTION.md",
+    "audit_instructions": "docs/audits/README.md",
+    "temporal_logic": "src/bracketballer_data/lineup_validation.py",
+    "source_downloader": "scripts/analysis/fetch_cbbd_lineup_sources.py",
+    "validator": "scripts/analysis/validate_onfloor_lineups.py",
+    "sampler": "scripts/analysis/sample_onfloor_audit.py"
+  }
+}

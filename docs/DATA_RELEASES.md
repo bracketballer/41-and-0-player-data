@@ -95,8 +95,29 @@ prohibited.
 ## AP Top 25 + Virginia Tech rosters and defensive characteristics
 
 Ensure the Fastify environment has the required migrations applied and keep the
-CBBD SDK pinned to this repository's requirements. The ranked-roster publisher
-is audited and dry-run by default:
+CBBD SDK pinned to this repository's requirements. First download the API
+responses into a resumable, release-specific local bundle:
+
+```bash
+export CBBD_API_KEY=<secret>
+
+python -m scripts.ingest.ingest_ranked_rosters \
+  --season 2026 \
+  --release-version ranked-rosters-2026-07-26.1 \
+  --download
+```
+
+Every response is checkpointed below
+`data/raw/ranked_rosters/<season>/<release-version>/`. If the download is
+interrupted, run the same command again and it resumes from the remaining API
+calls. `manifest.json` is written last and marks a complete, checksummed source
+bundle. Lineup endpoints are preserved as raw JSON so nullable source fields do
+not get rejected by the SDK's response models. Use a new release version when
+fresh source data is required.
+
+Once the download completes, validation and publication are fully offline and
+do not require `CBBD_API_KEY`. Review the dry-run first, then publish the exact
+same bundle with `--apply`:
 
 ```bash
 python -m scripts.ingest.ingest_ranked_rosters \
@@ -109,20 +130,79 @@ python -m scripts.ingest.ingest_ranked_rosters \
   --apply
 ```
 
-The job builds the permanent union of all AP ranks 1–25 returned for the
+The download builds the permanent union of all AP ranks 1–25 returned for the
 season plus Virginia Tech (CBBD team 340), fetches complete rosters, retains
 each selected athlete's CBBD history back to 2005, and backfills every
-finalized eligible-team game from season start. It fails before publication
-for missing/undersized rosters, absent eligible-team lineup results,
-non-five-player units, unresolved roster athletes, or unreconciled
-seconds/points. Torvik matching is written to `player_seasons`; unmatched
-records remain explicit and do not receive fabricated priors.
+finalized eligible-team game from season start. For current-season bundles,
+every populated D1 roster is retained separately as identity, membership, and
+position evidence so lineup resolution can include non-ranked opponents;
+roster-only identities remain outside the fantasy catalog. Offline validation
+fails before publication for missing/undersized rosters, absent eligible-team
+lineup results, non-five-player units, unresolved roster athletes, or
+unreconciled seconds/points. Torvik matching is written to `player_seasons`;
+unmatched records remain explicit and do not receive fabricated priors.
+
+Historical player-season schools outside the current Division I core dataset
+are inserted as audited reference rows in the same publication transaction.
+Eligible AP/roster teams must already exist in the canonical schools dataset.
+
+Raw lineup responses remain in the source bundle. Only team/game lineup sets
+that reconcile to plausible game time and the official score enter the
+candidate; partial, unrelated-team, and internally inconsistent CBBD responses
+are recorded as unavailable evidence in the manifest and validation report.
 
 During an active season, schedule this publisher daily with a unique immutable
 release version (for example, a UTC run timestamp). This is deliberately more
 frequent than the required weekly AP/roster refresh and ensures newly ranked
 teams are backfilled on the next run. Complete seasons need only be rerun for a
 source correction.
+
+### Developer delta distribution
+
+The ranked-roster candidate is distributed as a verified delta, never as a
+second PostgreSQL snapshot. After the ingestion commit is reviewed, create the
+small archive and record the exact successful Flyway V34 checksum from the
+publishing database:
+
+```bash
+python -m scripts.publish.publish_ranked_roster_delta create \
+  --candidate-dir data/raw/ranked_rosters/2026/ranked-rosters-2026-08-23.1 \
+  --season 2026 --release-version ranked-rosters-2026-08-23.1 \
+  --flyway-v34-checksum 34=-1973679461
+python -m scripts.publish.publish_ranked_roster_delta upload \
+  --archive data/exports/data-releases/ranked-rosters-2026-08-23.1.tar.gz \
+  --manifest data/exports/data-releases/ranked-rosters-2026-08-23.1.json
+```
+
+The archive contains only `candidate.json` and its source manifest. The
+archive checksum and publication manifest are uploaded first/last in that
+order, and existing matching objects are safely skipped on resume. Existing
+mismatched objects are never overwritten. Commit the resulting exact object
+keys and checksums under `releases/`; local Git hooks apply only descriptors
+present in the checked-out branch. The manual fallback is:
+
+```bash
+python -m scripts.apply_pending_data_releases
+```
+
+Descriptors that depend on schema changes also contain a
+`schema_dependency` with the Fastify repository, a stable ref, the exact
+Fastify commit, and the required Flyway checksums. The post-merge/post-rewrite
+and post-checkout hooks fetch that commit into a temporary detached worktree,
+run the Fastify-owned Flyway image, verify the resulting schema history, and
+only then apply the data release. The active `../fastify` checkout is never
+switched, stashed, cleaned, or pulled. Set `FASTIFY_REPO_PATH` when the sibling
+repository is elsewhere.
+
+Hooks require a configured `.venv`, a local/loopback database, and Docker when
+a schema dependency is present. Spaces credentials are required only for the
+artifact phase; schema migrations can still be applied when Spaces is not
+configured. Remote targets are always skipped by hooks and require the
+explicit manual `--allow-remote` data-release command. Corrupt artifacts,
+missing or mismatched Fastify commits, Flyway checksum mismatches, missing
+eligible canonical schools, and failed audited applications stop the hook
+visibly. A lock avoids concurrent applications, while an already-published
+matching audit row is a no-op.
 
 Compute the initial model in shadow mode without activating it:
 

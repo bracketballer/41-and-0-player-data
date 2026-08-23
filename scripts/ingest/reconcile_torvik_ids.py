@@ -35,8 +35,14 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 
-import psycopg2
-from psycopg2.extras import execute_values
+try:
+    import psycopg2
+    from psycopg2.extras import execute_values
+except ImportError:  # Pure matching is useful during offline bundle validation.
+    psycopg2 = None
+
+    def execute_values(*_args, **_kwargs):
+        raise RuntimeError("psycopg2 is required for Torvik database reconciliation")
 
 # Reuse the ingestion script's .env loading and DSN builder.
 from bracketballer_data.database import connection_dsn, load_env_file
@@ -263,6 +269,8 @@ def match_all(players, pds_rows):
 
 
 def main():
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is required for Torvik database reconciliation")
     TORVIK_REPORTS.mkdir(parents=True, exist_ok=True)
     load_env_file()
     conn = psycopg2.connect(connection_dsn())

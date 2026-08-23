@@ -1,0 +1,33 @@
+{
+  "format_version": 1,
+  "dataset": "ap_top25_vt_rosters_lineups",
+  "release_version": "ranked-rosters-2025-backfill.1",
+  "season": 2025,
+  "objects": {
+    "archive": "data-releases/v1/ap_top25_vt_rosters_lineups/2025/ranked-rosters-2025-backfill.1/ranked-rosters-2025-backfill.1.tar.gz",
+    "checksum": "data-releases/v1/ap_top25_vt_rosters_lineups/2025/ranked-rosters-2025-backfill.1/ranked-rosters-2025-backfill.1.tar.gz.sha256",
+    "manifest": "data-releases/v1/ap_top25_vt_rosters_lineups/2025/ranked-rosters-2025-backfill.1/ranked-rosters-2025-backfill.1.json"
+  },
+  "expected": {
+    "archive_bytes": 3111720,
+    "archive_sha256": "429372ada863588e9181abc4244725596d2ad966a21e95f8e7d77f8bf9dd2125",
+    "checksum_sha256": "eec061b0c052255a08dfc9abc7d2ec49d28b573eaa42bcf2a9cd5bfc1d722467",
+    "manifest_sha256": "8e18a556148c3e5dc9b0cc54efb4136284713cb610d13b184e1994e61d4e2660",
+    "candidate_sha256": "644d3993e02ffc0173883f7f811ea168e65d9ea50d2c5d3161034e4d9482fa3f"
+  },
+  "flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "required_flyway_v34_checksums": {
+    "34": -1973679461
+  },
+  "row_counts": {
+    "eligible_teams": 51,
+    "roster_memberships": 821,
+    "player_seasons": 2098,
+    "games": 1358,
+    "lineups": 23215,
+    "opponent_contexts": 314
+  },
+  "pipeline_commit": "59069e00ba546866a4df8216beef34eb691c974e"
+}

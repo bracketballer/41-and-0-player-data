@@ -18,7 +18,7 @@ from bracketballer_data.paths import DATA_ROOT, REPO_ROOT
 
 
 def _archive_for(output_dir: Path, release_version: str) -> Path:
-    return output_dir / f"bracketballer-player-school-data-v34-{release_version}.dump"
+    return output_dir / f"bracketballer-development-data-v34-{release_version}.dump"
 
 
 def main() -> None:

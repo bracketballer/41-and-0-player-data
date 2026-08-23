@@ -175,6 +175,8 @@ and a self-creating shooter. They are stored as a JSON array in `role_labels`.
 5. Coordinates should only support additional shot-location models in seasons
    with acceptable coordinate coverage.
 6. On-floor data is available beginning primarily in 2024, so no cross-season
-   label currently claims observed lineup synergy.
+   label currently claims observed lineup synergy. See
+   `LINEUP_ATTRIBUTION.md` for measured coverage and the current fallback
+   guidance for shot-to-lineup attribution.
 7. Complete-roster composition is evaluated at request time by Fastify from
    these stored player features; see `TEAM_LINEUP_SIGNALS.md`.
