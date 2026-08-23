@@ -145,7 +145,13 @@ def compute_coverage_stats(
 
 @dataclass
 class DisagreementStat:
-    """Aggregate lineup-vs-``team_game_lineups`` agreement for one season."""
+    """Aggregate game-level set consistency for one season.
+
+    ``team_game_lineups`` stores units aggregated over a whole game. This
+    statistic intentionally does not claim that the reference lineup was on
+    the floor at the event timestamp; temporal validation lives in
+    :mod:`bracketballer_data.lineup_validation`.
+    """
 
     season: int
     comparable_count: int = 0
@@ -169,7 +175,7 @@ def lineup_matches_any(
 def compute_disagreement_stats(
     comparisons: Iterable[tuple[int, frozenset[int], Iterable[frozenset[int]] | None]],
 ) -> dict[int, DisagreementStat]:
-    """Build per-season disagreement stats.
+    """Build per-season game-level set-consistency stats.
 
     Each item is ``(season, derived_five, stored_lineups_for_that_game_team)``.
     ``stored_lineups_for_that_game_team`` is ``None`` (or empty) when

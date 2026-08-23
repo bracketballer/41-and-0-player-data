@@ -3,8 +3,9 @@
 Reads `player_shot_events.raw_payload` for a season range, resolves each
 event's on-floor athlete ids against `players`, and compares the resolved
 defensive five-man set against `team_game_lineups` /
-`team_game_lineup_players`. Produces per-season coverage and disagreement
-statistics for bracketballer/41-and-0-player-data#4.
+`team_game_lineup_players`. Produces per-season coverage and game-level
+set-consistency statistics for bracketballer/41-and-0-player-data#4. This is
+not a time-aligned accuracy check; use `validate_onfloor_lineups` for that.
 
 Coverage and disagreement are reported for the defensive side (the team
 *not* shooting) since that is what the issue's "attributing shots to
@@ -111,10 +112,10 @@ def write_report(
                 "offense_events",
                 "offense_valid_five",
                 "offense_coverage_pct",
-                "comparable_games",
-                "disagreements",
-                "disagreement_rate_pct",
-                "no_reference_count",
+                "game_lineup_set_comparable_events",
+                "game_lineup_set_disagreements",
+                "game_lineup_set_mismatch_rate_pct",
+                "game_lineup_set_no_reference_count",
             ]
         )
         for season in seasons:
@@ -186,7 +187,7 @@ def run(first: int, last: int, report_path: Path) -> None:
         if dis is not None:
             dis_pct = _pct(dis.disagreement_rate_pct) or "n/a"
             print(
-                f"    disagreement vs team_game_lineups: {dis_pct}% "
+                f"    game-lineup set mismatch (not time-aligned): {dis_pct}% "
                 f"({dis.disagreement_count}/{dis.comparable_count} comparable; "
                 f"{dis.no_reference_count} had no stored lineup to compare against)"
             )
