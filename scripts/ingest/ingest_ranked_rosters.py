@@ -237,6 +237,7 @@ def fetch_candidate(
         "games": games,
         "lineups": lineups,
         "opponent_contexts": opponent_contexts,
+        "skipped_lineup_game_ids": skipped_game_ids,
     }
 
 
@@ -292,8 +293,16 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         for team_id in (int(game["homeTeamId"]), int(game["awayTeamId"]))
         if team_id in eligible_ids
     }
+    skipped_lineup_game_ids = set(candidate.get("skipped_lineup_game_ids") or [])
+    all_missing_game_lineups = expected_game_teams - set(lineups_by_game_team)
+    # A game already logged in fetch_candidate as skipped for the known
+    # null-rating CBBD bug (#16) is an expected gap, not a validation
+    # failure -- only an *unexplained* missing lineup should hard-fail.
+    known_missing_game_lineups = sorted(
+        pair for pair in all_missing_game_lineups if pair[0] in skipped_lineup_game_ids
+    )
     missing_game_lineups = sorted(
-        expected_game_teams - set(lineups_by_game_team)
+        pair for pair in all_missing_game_lineups if pair[0] not in skipped_lineup_game_ids
     )
     reconciliation_failures: list[dict[str, Any]] = []
     for (game_id, team_id), lineups in lineups_by_game_team.items():
@@ -346,6 +355,7 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "invalid_lineups": 0,
         "missing_game_lineups": 0,
         "reconciliation_failures": 0,
+        "known_skipped_game_lineups": len(known_missing_game_lineups),
     }
 
 
