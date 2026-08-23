@@ -23,6 +23,13 @@ POSITION_MAP = {
     "F-G": ("SG", "SF"),
     "F-C": ("PF", "C"),
     "C-F": ("PF", "C"),
+    "GUARD": ("PG", "SG"),
+    "POINT GUARD": ("PG",),
+    "SHOOTING GUARD": ("SG",),
+    "FORWARD": ("SF", "PF"),
+    "SMALL FORWARD": ("SF",),
+    "POWER FORWARD": ("PF",),
+    "CENTER": ("C",),
 }
 
 
@@ -164,4 +171,80 @@ def validate_roster_coverage(
         "roster_players": sum(counts.values()),
         "minimum_team_roster": min(counts.values()) if counts else 0,
         "maximum_team_roster": max(counts.values()) if counts else 0,
+    }
+
+
+def validate_full_roster_coverage(
+    rosters: Iterable[Mapping[str, Any]],
+    season: int,
+    *,
+    minimum_players: int = 5,
+) -> dict[str, Any]:
+    """Validate the complete current-season roster response.
+
+    Unlike the ranked-team validator, this checks every populated roster row.
+    The same athlete may appear for multiple teams during a transfer, but an
+    athlete may not be duplicated or renamed within one team roster.
+    """
+    rows = list(rosters)
+    if not rows:
+        raise ValueError("Full roster coverage failed: no populated rosters")
+
+    team_names: dict[int, str] = {}
+    team_players: dict[int, set[int]] = {}
+    player_names: dict[int, str] = {}
+    for roster in rows:
+        roster_season = roster.get("season")
+        if roster_season is not None and int(roster_season) != season:
+            raise ValueError(
+                f"Full roster coverage failed: roster season {roster_season} "
+                f"does not match {season}"
+            )
+        team_id = int(roster["teamId"])
+        team_name = str(roster.get("team") or "").strip()
+        if not team_name:
+            raise ValueError(f"Full roster coverage failed: team {team_id} has no name")
+        if team_id in team_players:
+            raise ValueError(
+                f"Full roster coverage failed: duplicate roster for team {team_id}"
+            )
+        previous_team_name = team_names.setdefault(team_id, team_name)
+        if previous_team_name != team_name:
+            raise ValueError(
+                f"Full roster coverage failed: team {team_id} has conflicting names"
+            )
+        players = roster.get("players") or []
+        if len(players) < minimum_players:
+            raise ValueError(
+                f"Full roster coverage failed: team {team_id} has "
+                f"{len(players)} players; expected at least {minimum_players}"
+            )
+        ids = team_players.setdefault(team_id, set())
+        for player in players:
+            player_id = int(player["id"])
+            if player_id in ids:
+                raise ValueError(
+                    f"Full roster coverage failed: duplicate player {player_id} "
+                    f"on team {team_id}"
+                )
+            ids.add(player_id)
+            player_name = str(player.get("name") or "").strip()
+            if not player_name:
+                raise ValueError(
+                    f"Full roster coverage failed: player {player_id} has no name"
+                )
+            previous_player_name = player_names.setdefault(player_id, player_name)
+            if previous_player_name != player_name:
+                raise ValueError(
+                    f"Full roster coverage failed: player {player_id} has "
+                    "conflicting names"
+                )
+
+    counts = [len(players) for players in team_players.values()]
+    return {
+        "full_roster_teams": len(team_players),
+        "full_roster_players": sum(counts),
+        "full_roster_unique_players": len(player_names),
+        "minimum_team_roster": min(counts),
+        "maximum_team_roster": max(counts),
     }

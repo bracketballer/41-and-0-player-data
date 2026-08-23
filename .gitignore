@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .data-release.lock
+.development-sync.lock
 /data/*
 !/data/.gitkeep
 !/data/README.md

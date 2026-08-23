@@ -5,6 +5,7 @@ from bracketballer_data.ranked_rosters import (
     build_eligible_teams,
     normalize_positions,
     validate_ap_top25_coverage,
+    validate_full_roster_coverage,
     validate_roster_coverage,
 )
 
@@ -73,7 +74,97 @@ class RankedRosterTests(unittest.TestCase):
     def test_position_normalization(self):
         self.assertEqual(normalize_positions("F-C"), ("PF", "C"))
         self.assertEqual(normalize_positions("g/f"), ("SG", "SF"))
+        self.assertEqual(normalize_positions("Forward"), ("SF", "PF"))
+        self.assertEqual(normalize_positions("Center"), ("C",))
         self.assertEqual(normalize_positions(None), ())
+
+    def test_full_roster_validation_allows_transfers(self):
+        summary = validate_full_roster_coverage(
+            [
+                {
+                    "season": 2026,
+                    "teamId": 1,
+                    "team": "One",
+                    "players": [
+                        {"id": player_id, "name": f"Player {player_id}"}
+                        for player_id in range(1, 6)
+                    ],
+                },
+                {
+                    "season": 2026,
+                    "teamId": 2,
+                    "team": "Two",
+                    "players": [
+                        {"id": player_id, "name": f"Player {player_id}"}
+                        for player_id in range(1, 5)
+                    ]
+                    + [{"id": 6, "name": "Player 6"}],
+                },
+            ],
+            2026,
+        )
+        self.assertEqual(summary["full_roster_teams"], 2)
+        self.assertEqual(summary["full_roster_players"], 10)
+        self.assertEqual(summary["full_roster_unique_players"], 6)
+
+    def test_full_roster_validation_rejects_duplicate_player_and_bad_season(self):
+        with self.assertRaisesRegex(ValueError, "duplicate player"):
+            validate_full_roster_coverage(
+                [
+                    {
+                        "season": 2026,
+                        "teamId": 1,
+                        "team": "One",
+                        "players": [
+                            {"id": 1, "name": "Player 1"},
+                            {"id": 1, "name": "Player 1"},
+                            {"id": 2, "name": "Player 2"},
+                            {"id": 3, "name": "Player 3"},
+                            {"id": 4, "name": "Player 4"},
+                        ],
+                    }
+                ],
+                2026,
+            )
+        with self.assertRaisesRegex(ValueError, "duplicate roster"):
+            validate_full_roster_coverage(
+                [
+                    {
+                        "season": 2026,
+                        "teamId": 1,
+                        "team": "One",
+                        "players": [
+                            {"id": player_id, "name": f"Player {player_id}"}
+                            for player_id in range(1, 6)
+                        ],
+                    },
+                    {
+                        "season": 2026,
+                        "teamId": 1,
+                        "team": "One",
+                        "players": [
+                            {"id": player_id, "name": f"Other {player_id}"}
+                            for player_id in range(6, 11)
+                        ],
+                    },
+                ],
+                2026,
+            )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            validate_full_roster_coverage(
+                [
+                    {
+                        "season": 2025,
+                        "teamId": 1,
+                        "team": "One",
+                        "players": [
+                            {"id": player_id, "name": f"Player {player_id}"}
+                            for player_id in range(1, 6)
+                        ],
+                    }
+                ],
+                2026,
+            )
 
     def test_roster_validation_rejects_missing_and_undersized_teams(self):
         with self.assertRaisesRegex(ValueError, "missing"):

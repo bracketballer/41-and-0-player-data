@@ -10,9 +10,11 @@ below to regenerate the numbers.
 `raw_payload.onFloor` is a flat array of ten `{id, name, team}` entries (both
 teams combined for that moment), where `id` is CBBD's athlete id. This
 database uses that same id as `players.id` directly — there is no separate
-mapping table. A player only has a `players` row if they were themselves
-ingested as a shot-taker; an on-floor teammate who never attempted a shot may
-have no row to resolve against.
+mapping table. The original core dataset only created rows for curated
+shot-takers; the 2025–26 ranked-roster release path now also publishes
+full-roster identities, memberships, and position mappings. Those roster-only
+identities remain `is_fantasy_eligible = false` and are available for
+attribution only.
 
 ## Coverage statistics
 
@@ -27,23 +29,21 @@ counts as uncovered, not excluded).
 |---|---|---|---|
 | 2024 | 37.59% (126,593 / 336,739) | 40.14% (135,156 / 336,739) | 336,739 |
 | 2025 | 34.87% (122,510 / 351,363) | 37.52% (131,821 / 351,363) | 351,363 |
-| 2026 (2025–26) | 22.91% (120,284 / 524,922) | 26.50% (139,112 / 524,922) | 524,922 |
+| 2026 (2025–26) | **93.55% (491,065 / 524,922)** | **97.29% (510,687 / 524,922)** | 524,922 |
 
-Coverage is well below the 90% bar the AC uses, and it declines season over
-season rather than improving. That direction rules out "on-floor data
-simply isn't populated yet for older seasons" as the explanation — `onFloor`
-itself is populated at a similar 10-entries-per-event rate across 2024–2026
-(verified by direct query; see Method). The shortfall is on the resolution
-side: `players` does not yet contain every player who appears in `onFloor`,
-and the gap is largest for the current (2025–26) season, consistent with
-`players` population lagging behind the most recent season's roster churn.
+The 2024 and 2025 figures are well below the 90% bar, while the 2026
+full-roster release clears it. That contrast rules out "on-floor data simply
+isn't populated yet" as the explanation — `onFloor` itself is populated at a
+similar 10-entries-per-event rate across 2024–2026 (verified by direct query;
+see Method). The shortfall in the older seasons is on the resolution side:
+`players` does not yet contain every player who appears in `onFloor` because
+those seasons have not received the full-roster treatment.
 
-These numbers moved up from an earlier measurement taken against a database
-with no `team_game_lineups` rows at all (2024: 29.03%, 2025: 25.05%, 2026:
-11.94%) — running `ingest_ranked_rosters.py` for all three seasons (see
-below) also backfills `players` rows via each season's rosters, which lifted
-resolution coverage as a side effect. The gap is still large; this is not
-close to the 90% bar.
+The 2024 and 2025 figures remain the historical pre-full-roster measurements.
+The 2026 full-roster release (`ranked-rosters-2026-08-23.2`) raises current
+season defensive coverage above the AC's 90% acceptance bar. An earlier
+measurement against a database with no `team_game_lineups` rows at all was
+lower (2024: 29.03%, 2025: 25.05%, 2026: 11.94%).
 
 ## Disagreement rate analysis
 
@@ -92,21 +92,22 @@ been done yet.
 
 ## Guidance on attributing shots to defensive lineups
 
-1. **Do not treat `onFloor` as reliably resolvable today.** At 23–38%
-   event-level coverage, most shots still cannot be attributed to a specific
-   five-man defensive unit. Any downstream consumer (T4/T5/T8) that assumes
-   near-complete resolution will silently drop the majority of events.
-2. **The coverage gap is a `players` roster-completeness problem, not a
+1. **For 2025–26, `onFloor` is now reliably resolvable at the event level.**
+   The full-roster release resolves 93.55% of defensive sides and 97.29% of
+   offensive sides. Consumers should still account for the residual unresolved
+   events rather than assuming 100% coverage. The 2024 and 2025 figures remain
+   historical baselines until those seasons receive the same full-roster
+   treatment.
+2. **The original coverage gap is a `players` roster-completeness problem, not a
    payload or join-logic problem.** `onFloor` itself is present and shaped
    as expected across 2024–2026 (10 entries, `{id, name, team}`, ids in the
    same namespace as `players.id`). Closing the gap means ensuring every
    player who appears on a box score — not just shot-takers — gets a
-   `players` row, likely by broadening whatever ingestion currently seeds
-   `players` to include full rosters, not only players who logged an
-   attempt.
-3. **Coverage is worse, not better, for the current season.** Any consumer
-   using this for in-season (2025–26) work should expect the least reliable
-   attribution of the three seasons measured.
+   `players` row. The release addresses this by importing complete 2025–26
+   rosters while keeping those identities outside the fantasy catalog.
+3. **Coverage is now strongest for the current season.** Any consumer using
+   this for 2025–26 work can use lineup-level attribution with the residual
+   coverage checks described above.
 4. **Disagreement rate is measured now, but treat it as weak evidence, not
    strong validation**, for the circularity reason above. A 0% disagreement
    rate does not license trusting attribution on its own — coverage is the
@@ -114,15 +115,12 @@ been done yet.
    number should be re-examined after a manual spot-check rather than cited
    as-is.
 
-## Fallback: team-level profiles (all three seasons are below 90%)
+## Fallback: team-level profiles (for seasons below 90%)
 
-Defensive coverage measures 37.59% (2024), 34.87% (2025), and 22.91% (2026
-/ 2025–26) — all far under the 90% threshold, though the AC's 90% bar is
-specifically scoped to 2025–26. Per the acceptance criteria, event-level
-shot-to-lineup attribution should not be used for 2025–26 data yet, and the
-same conclusion holds for 2024/2025 by the same measure. Until `players`
-roster-completeness closes this gap, downstream consumers should fall back
-to team-level profiles instead of lineup-level attribution:
+Defensive coverage remains below 90% for 2024 (37.59%) and 2025 (34.87%).
+Those seasons should continue to use the team-level fallback until their full
+rosters are backfilled. The 2025–26 release clears the acceptance bar, so this
+fallback is not required for 2026 events that resolve successfully:
 
 - Aggregate shot outcomes at the **team-game** level using
   `team_game_lineups.team_stats` / `opponent_stats` (now populated for all

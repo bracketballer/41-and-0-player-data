@@ -93,9 +93,48 @@ def read_descriptor(path: Path) -> dict[str, Any]:
     flyway = value.get("flyway_v34_checksums") or value.get("required_flyway_v34_checksums")
     if not isinstance(flyway, dict) or "34" not in flyway:
         raise ValueError(f"release descriptor Flyway V34 signature is missing: {path}")
+    normalized_flyway = {str(key): value for key, value in flyway.items()}
+    schema_dependency = value.get("schema_dependency")
+    if schema_dependency is not None:
+        if not isinstance(schema_dependency, dict):
+            raise ValueError(f"release descriptor schema dependency is invalid: {path}")
+        repository = schema_dependency.get("repository")
+        ref = schema_dependency.get("ref")
+        commit = schema_dependency.get("commit")
+        flyway_version = schema_dependency.get("flyway_version")
+        flyway_checksums = schema_dependency.get("flyway_checksums")
+        if not isinstance(repository, str) or not repository.strip():
+            raise ValueError(f"release descriptor schema repository is missing: {path}")
+        if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
+            raise ValueError(f"release descriptor schema ref is invalid: {path}")
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit.lower()):
+            raise ValueError(f"release descriptor schema commit is invalid: {path}")
+        if not isinstance(flyway_version, str) or not flyway_version.isdigit():
+            raise ValueError(f"release descriptor schema Flyway version is invalid: {path}")
+        if not isinstance(flyway_checksums, dict) or "34" not in flyway_checksums:
+            raise ValueError(f"release descriptor schema Flyway checksums are incomplete: {path}")
+        normalized_schema_checksums = {
+            str(key): value for key, value in flyway_checksums.items()
+        }
+        if flyway_version not in normalized_schema_checksums:
+            raise ValueError(
+                f"release descriptor schema Flyway version {flyway_version} checksum is missing: {path}"
+            )
+        for version, checksum in normalized_schema_checksums.items():
+            if not version.isdigit() or not isinstance(checksum, (int, str)):
+                raise ValueError(f"release descriptor schema Flyway checksum is invalid: {path}")
+        value["schema_dependency"] = {
+            "repository": repository.strip(),
+            "ref": ref.strip(),
+            "commit": commit.lower(),
+            "flyway_version": flyway_version,
+            "flyway_checksums": normalized_schema_checksums,
+        }
+        normalized_flyway = normalized_schema_checksums
     value["objects"] = objects
     value["expected"] = expected
-    value["flyway_v34_checksums"] = flyway
+    value["flyway_v34_checksums"] = {"34": normalized_flyway["34"]}
+    value["required_flyway_checksums"] = normalized_flyway
     return value
 
 
@@ -115,29 +154,43 @@ def require_local_database(dsn: str, *, allow_remote: bool = False) -> None:
         )
 
 
-def flyway_v34_signature(conn: Any) -> dict[str, int | str]:
+def flyway_signature(conn: Any, versions: set[str]) -> dict[str, int | str]:
+    ordered_versions = sorted(versions, key=lambda version: int(version))
     with conn.cursor() as cursor:
         cursor.execute(
             """
             SELECT version, checksum, success
             FROM flyway_schema_history
-            WHERE version = '34'
+            WHERE version = ANY(%s)
             ORDER BY installed_rank
-            """
+            """,
+            (ordered_versions,),
         )
         rows = cursor.fetchall()
-    if len(rows) != 1 or not rows[0][2]:
-        raise RuntimeError("database must have exactly one successful Flyway V34 migration")
-    return {"34": rows[0][1]}
+    return {
+        str(row[0]): row[1]
+        for row in rows
+        if len(row) >= 3 and row[2]
+    }
+
+
+def flyway_v34_signature(conn: Any) -> dict[str, int | str]:
+    return flyway_signature(conn, {EXPECTED_FLYWAY_VERSION})
+
+
+def require_flyway_checksums(conn: Any, expected: dict[str, Any]) -> None:
+    normalized_expected = {str(key): value for key, value in expected.items()}
+    actual = flyway_signature(conn, set(normalized_expected))
+    if actual != normalized_expected:
+        versions = ", ".join(sorted(normalized_expected, key=lambda version: int(version)))
+        raise RuntimeError(
+            f"Flyway migration checksum mismatch for V{versions}: "
+            f"expected={normalized_expected}, actual={actual}"
+        )
 
 
 def require_flyway_v34(conn: Any, expected: dict[str, Any]) -> None:
-    actual = flyway_v34_signature(conn)
-    normalized_expected = {str(key): value for key, value in expected.items()}
-    if actual != normalized_expected:
-        raise RuntimeError(
-            f"Flyway V34 checksum mismatch: expected={normalized_expected}, actual={actual}"
-        )
+    require_flyway_checksums(conn, {EXPECTED_FLYWAY_VERSION: expected[EXPECTED_FLYWAY_VERSION]})
 
 
 def require_eligible_schools(conn: Any, candidate: dict[str, Any]) -> None:
@@ -266,6 +319,10 @@ def apply_descriptor(
                 "lineups": validation["team_game_lineups"],
                 "opponent_contexts": validation["opponent_contexts"],
             }
+            if "all_roster_memberships" in declared_counts:
+                actual_counts["all_roster_memberships"] = validation[
+                    "full_roster_players"
+                ]
             if {key: int(value) for key, value in declared_counts.items()} != actual_counts:
                 raise ValueError(
                     f"candidate row counts do not match descriptor: expected={declared_counts}, actual={actual_counts}"
@@ -281,7 +338,7 @@ def apply_descriptor(
         conn = psycopg2.connect(database_dsn)
         conn.autocommit = False
         try:
-            require_flyway_v34(conn, descriptor["flyway_v34_checksums"])
+            require_flyway_checksums(conn, descriptor["required_flyway_checksums"])
             require_eligible_schools(conn, candidate)
             state = audit_state(conn, descriptor, candidate_sha256)
             conn.rollback()

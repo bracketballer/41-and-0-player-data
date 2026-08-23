@@ -39,6 +39,36 @@ def fixture() -> dict:
 
 
 class RankedRosterDeltaTests(unittest.TestCase):
+    def test_full_roster_candidate_is_supported_by_delta(self):
+        candidate = fixture()
+        candidate["all_rosters"] = [
+            {
+                "season": 2026,
+                "teamId": roster["teamId"],
+                "team": f"Team {roster['teamId']}",
+                "players": [
+                    {"id": player["id"], "name": f"Player {player['id']}"}
+                    for player in roster["players"]
+                ],
+            }
+            for roster in candidate["rosters"]
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            source = root / "source"
+            output = root / "output"
+            write_candidate_bundle(source, candidate, 2026, "ranked-rosters-full.1")
+            _archive, _checksum, _publication, manifest = create_delta_archive(
+                candidate_dir=source,
+                output_dir=output,
+                season=2026,
+                release_version="ranked-rosters-full.1",
+                pipeline_commit="a" * 40,
+                flyway_v34_checksums={"34": -1},
+            )
+
+            self.assertEqual(manifest["row_counts"]["all_roster_memberships"], 130)
+
     def test_archive_is_exact_two_files_and_safe_to_extract(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)

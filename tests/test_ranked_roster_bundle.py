@@ -10,6 +10,7 @@ from scripts.ingest.ingest_ranked_rosters import (
     cached_rows,
     candidate_reference_school_names,
     load_candidate_bundle,
+    merge_roster_evidence,
     main,
     raw_lineup_rows,
     select_reconciled_lineups,
@@ -60,6 +61,30 @@ def candidate_fixture() -> dict:
 
 
 class RankedRosterBundleTests(unittest.TestCase):
+    def test_lineup_inferred_memberships_are_explicitly_merged_into_full_scope(self):
+        full_rosters = [
+            {
+                "teamId": 1,
+                "players": [{"id": 10, "name": "Roster player"}],
+            }
+        ]
+        supplemented_rosters = [
+            {
+                "teamId": 1,
+                "players": [
+                    {"id": 10, "name": "Roster player"},
+                    {
+                        "id": 11,
+                        "name": "Lineup player",
+                        "_membershipEvidence": "lineup",
+                    },
+                ],
+            }
+        ]
+
+        self.assertEqual(merge_roster_evidence(full_rosters, supplemented_rosters), 1)
+        self.assertEqual([player["id"] for player in full_rosters[0]["players"]], [10, 11])
+
     def test_historical_reference_schools_come_from_player_seasons(self):
         candidate = candidate_fixture()
         candidate["player_seasons"] = [
@@ -182,6 +207,41 @@ class RankedRosterBundleTests(unittest.TestCase):
             self.assertEqual(len(loaded["eligible"]), 26)
             manifest = read_json(source_dir / "manifest.json")
             self.assertEqual(manifest["status"], "complete")
+
+    def test_full_roster_bundle_round_trip_uses_format_four(self):
+        candidate = candidate_fixture()
+        candidate["all_rosters"] = [
+            {
+                "season": SEASON,
+                "teamId": team["teamId"],
+                "team": f"Team {team['teamId']}",
+                "players": [
+                    {"id": player["id"], "name": f"Player {player['id']}"}
+                    for player in team["players"]
+                ],
+            }
+            for team in candidate["rosters"]
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            source_dir = Path(temporary)
+            write_candidate_bundle(
+                source_dir,
+                candidate,
+                SEASON,
+                RELEASE_VERSION,
+            )
+
+            loaded = load_candidate_bundle(
+                source_dir,
+                SEASON,
+                RELEASE_VERSION,
+            )
+
+            self.assertEqual(len(loaded["all_rosters"]), 26)
+            self.assertEqual(
+                read_json(source_dir / "manifest.json")["format_version"],
+                4,
+            )
 
     def test_bundle_rejects_tampered_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:

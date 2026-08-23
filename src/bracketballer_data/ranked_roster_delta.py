@@ -120,8 +120,13 @@ def _validate_candidate_bundle(
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
     candidate_path, source_manifest_path = _candidate_files(candidate_dir)
     source_manifest = _json_object(source_manifest_path, "candidate source manifest")
+    format_version = source_manifest.get("format_version")
+    if format_version not in {3, 4}:
+        raise ValueError(
+            f"unsupported candidate source format: {format_version!r}"
+        )
     expected = {
-        "format_version": 3,
+        "format_version": format_version,
         "status": "complete",
         "season": season,
         "release_version": release_version,
@@ -154,7 +159,7 @@ def _validate_candidate_bundle(
 
 
 def _counts(candidate: dict[str, Any]) -> dict[str, int]:
-    return {
+    counts = {
         "eligible_teams": len(candidate["eligible"]),
         "roster_memberships": sum(
             len(roster.get("players", [])) for roster in candidate["rosters"]
@@ -164,6 +169,12 @@ def _counts(candidate: dict[str, Any]) -> dict[str, int]:
         "lineups": len(candidate["lineups"]),
         "opponent_contexts": len(candidate["opponent_contexts"]),
     }
+    if "all_rosters" in candidate:
+        counts["all_roster_memberships"] = sum(
+            len(roster.get("players", []))
+            for roster in candidate["all_rosters"]
+        )
+    return counts
 
 
 def _object_prefix(season: int, release_version: str, root: str = DEFAULT_OBJECT_ROOT) -> str:

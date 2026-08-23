@@ -21,6 +21,16 @@
   "required_flyway_v34_checksums": {
     "34": -1973679461
   },
+  "schema_dependency": {
+    "repository": "bracketballer/fastify",
+    "ref": "develop",
+    "commit": "7e029dd538b16569f09bd5ac6d189ba45e2968d9",
+    "flyway_version": "35",
+    "flyway_checksums": {
+      "34": -1973679461,
+      "35": 1162551216
+    }
+  },
   "row_counts": {
     "all_roster_memberships": 5645,
     "eligible_teams": 44,

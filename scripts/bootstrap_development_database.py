@@ -75,7 +75,7 @@ def database_bootstrap_state(conn: Any) -> str:
     numeric_versions = [
         int(str(row[0])) for row in flyway_rows if str(row[0]).isdigit()
     ]
-    if not numeric_versions or max(numeric_versions) != EXPECTED_FLYWAY_VERSION:
+    if not numeric_versions or max(numeric_versions) < EXPECTED_FLYWAY_VERSION:
         return "not-migrated"
 
     public_tables = database_public_table_names(conn)
@@ -87,6 +87,12 @@ def database_bootstrap_state(conn: Any) -> str:
     snapshot_counts = database_table_counts(conn, list(SNAPSHOT_TABLES))
     if any(snapshot_counts.values()):
         return "initialized"
+
+    # A later schema with no snapshot data is not safe to populate from a V34
+    # snapshot: the target may belong to another setup flow. Require the
+    # developer to initialize it explicitly instead of silently restoring.
+    if max(numeric_versions) > EXPECTED_FLYWAY_VERSION:
+        return "not-migrated"
 
     all_counts = database_table_counts(conn, public_tables)
     unexpected = unexpected_target_table_counts(all_counts)

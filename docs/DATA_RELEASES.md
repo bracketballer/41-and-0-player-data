@@ -133,11 +133,14 @@ python -m scripts.ingest.ingest_ranked_rosters \
 The download builds the permanent union of all AP ranks 1–25 returned for the
 season plus Virginia Tech (CBBD team 340), fetches complete rosters, retains
 each selected athlete's CBBD history back to 2005, and backfills every
-finalized eligible-team game from season start. Offline validation fails before
-publication for missing/undersized rosters, absent eligible-team lineup
-results, non-five-player units, unresolved roster athletes, or unreconciled
-seconds/points. Torvik matching is written to `player_seasons`; unmatched
-records remain explicit and do not receive fabricated priors.
+finalized eligible-team game from season start. For current-season bundles,
+every populated D1 roster is retained separately as identity, membership, and
+position evidence so lineup resolution can include non-ranked opponents;
+roster-only identities remain outside the fantasy catalog. Offline validation
+fails before publication for missing/undersized rosters, absent eligible-team
+lineup results, non-five-player units, unresolved roster athletes, or
+unreconciled seconds/points. Torvik matching is written to `player_seasons`;
+unmatched records remain explicit and do not receive fabricated priors.
 
 Historical player-season schools outside the current Division I core dataset
 are inserted as audited reference rows in the same publication transaction.
@@ -182,12 +185,24 @@ present in the checked-out branch. The manual fallback is:
 python -m scripts.apply_pending_data_releases
 ```
 
-Hooks require a configured `.venv`, Spaces credentials, and a local/loopback
-database. Remote targets require the explicit manual `--allow-remote` option.
-Corrupt artifacts, Flyway V34 checksum mismatches, missing eligible canonical
-schools, and failed audited applications stop the hook visibly. A lock avoids
-concurrent applications, while an already-published matching audit row is a
-no-op.
+Descriptors that depend on schema changes also contain a
+`schema_dependency` with the Fastify repository, a stable ref, the exact
+Fastify commit, and the required Flyway checksums. The post-merge/post-rewrite
+and post-checkout hooks fetch that commit into a temporary detached worktree,
+run the Fastify-owned Flyway image, verify the resulting schema history, and
+only then apply the data release. The active `../fastify` checkout is never
+switched, stashed, cleaned, or pulled. Set `FASTIFY_REPO_PATH` when the sibling
+repository is elsewhere.
+
+Hooks require a configured `.venv`, a local/loopback database, and Docker when
+a schema dependency is present. Spaces credentials are required only for the
+artifact phase; schema migrations can still be applied when Spaces is not
+configured. Remote targets are always skipped by hooks and require the
+explicit manual `--allow-remote` data-release command. Corrupt artifacts,
+missing or mismatched Fastify commits, Flyway checksum mismatches, missing
+eligible canonical schools, and failed audited applications stop the hook
+visibly. A lock avoids concurrent applications, while an already-published
+matching audit row is a no-op.
 
 Compute the initial model in shadow mode without activating it:
 

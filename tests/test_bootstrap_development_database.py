@@ -42,14 +42,17 @@ class FakeCursor:
                 for title, category in sorted(MIGRATION_SEEDED_LABELS)
             ]
         if "FROM flyway_schema_history" in self.query:
-            return [(str(version), True) for version in range(1, 35)]
+            return [
+                (str(version), True)
+                for version in range(1, self.connection.schema_version + 1)
+            ]
         if "FROM pg_tables" in self.query:
             return [(table,) for table in sorted(self.connection.tables)]
         raise AssertionError(f"unexpected fetchall query: {self.query}")
 
 
 class FakeConnection:
-    def __init__(self, counts=None, *, valid_system_labels=True):
+    def __init__(self, counts=None, *, valid_system_labels=True, schema_version=34):
         self.tables = set(SNAPSHOT_TABLES) | {
             "data_import_runs",
             "lineup_labels",
@@ -59,6 +62,7 @@ class FakeConnection:
         self.counts["lineup_labels"] = 7
         self.counts.update(counts or {})
         self.valid_system_labels = valid_system_labels
+        self.schema_version = schema_version
 
     def cursor(self):
         return FakeCursor(self)
@@ -75,6 +79,20 @@ class BootstrapDevelopmentDatabaseTests(unittest.TestCase):
         self.assertEqual(
             bootstrap.database_bootstrap_state(FakeConnection({"schools": 44})),
             "initialized",
+        )
+
+    def test_existing_snapshot_at_v35_is_initialized(self):
+        self.assertEqual(
+            bootstrap.database_bootstrap_state(
+                FakeConnection({"schools": 44}, schema_version=35)
+            ),
+            "initialized",
+        )
+
+    def test_empty_database_above_snapshot_baseline_is_not_restored(self):
+        self.assertEqual(
+            bootstrap.database_bootstrap_state(FakeConnection(schema_version=35)),
+            "not-migrated",
         )
 
     def test_application_data_without_snapshot_is_rejected(self):

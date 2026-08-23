@@ -1,14 +1,18 @@
-"""Download and ingest AP Top 25 + Virginia Tech roster evidence.
+"""Download and ingest ranked lineup evidence plus complete roster identities.
 
 Use --download first to create a resumable, release-specific source bundle.
 Subsequent dry-run and --apply invocations read only that local bundle and do
-not call CBBD. A team remains eligible once it appears in any AP rank 1-25
-response; Virginia Tech (CBBD team 340) is always included.
+not call CBBD. A team remains lineup-eligible once it appears in any AP rank
+1-25 response; Virginia Tech (CBBD team 340) is always included. Every
+populated current-season D1 roster is also published as identity, membership,
+and position evidence, but roster-only player identities remain ineligible for
+the fantasy game.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -87,13 +91,15 @@ from bracketballer_data.ranked_rosters import (
     build_eligible_teams,
     normalize_positions,
     validate_ap_top25_coverage,
+    validate_full_roster_coverage,
     validate_roster_coverage,
 )
 from scripts.ingest.reconcile_torvik_ids import match_all
 
 from bracketballer_data.paths import RAW_RANKED_ROSTERS, REPO_ROOT
 
-ARCHIVE_FORMAT_VERSION = 3
+ARCHIVE_FORMAT_VERSION = 4
+LEGACY_ARCHIVE_FORMAT_VERSIONS = frozenset({3})
 GAME_WINDOW_DAYS = 14
 PLAYER_HISTORY_FIRST_SEASON = 2005
 
@@ -256,6 +262,32 @@ def supplement_rosters_from_lineups(
             memberships.add(membership)
             inferred += 1
     return inferred
+
+
+def merge_roster_evidence(
+    full_rosters: list[dict[str, Any]],
+    supplemented_rosters: list[dict[str, Any]],
+) -> int:
+    """Merge lineup-inferred memberships into the full publication scope."""
+
+    full_by_team = {int(roster["teamId"]): roster for roster in full_rosters}
+    merged = 0
+    for roster in supplemented_rosters:
+        team_id = int(roster["teamId"])
+        target = full_by_team.get(team_id)
+        if target is None:
+            raise ValueError(
+                f"cannot merge roster evidence for unknown team {team_id}"
+            )
+        known_ids = {int(player["id"]) for player in target.get("players", [])}
+        for player in roster.get("players", []):
+            player_id = int(player["id"])
+            if player_id in known_ids:
+                continue
+            target.setdefault("players", []).append(copy.deepcopy(player))
+            known_ids.add(player_id)
+            merged += 1
+    return merged
 
 
 def lineup_reconciliation_failure(
@@ -435,9 +467,15 @@ def fetch_candidate(
             retries,
             "rosters",
         )
-        rosters = [
-            row
+        all_rosters = [
+            copy.deepcopy(row)
             for row in roster_responses
+            if row.get("players")
+        ]
+        validate_full_roster_coverage(all_rosters, season)
+        rosters = [
+            copy.deepcopy(row)
+            for row in all_rosters
             if int(row["teamId"]) in eligible_ids
         ]
         roster_player_ids = {
@@ -565,6 +603,7 @@ def fetch_candidate(
 
         inferred_roster_players = supplement_rosters_from_lineups(rosters, lineups)
         if inferred_roster_players:
+            merge_roster_evidence(all_rosters, rosters)
             print(
                 f"rosters: added {inferred_roster_players} player-team membership(s) "
                 "from lineup evidence",
@@ -597,6 +636,7 @@ def fetch_candidate(
         "rankings": rankings,
         "eligible": eligible,
         "rosters": rosters,
+        "all_rosters": all_rosters,
         "player_seasons": player_seasons,
         "games": games,
         "lineups": lineups,
@@ -610,6 +650,12 @@ def fetch_candidate(
 
 def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     eligible_ids = {row.team_id for row in candidate["eligible"]}
+    full_roster_validation: dict[str, Any] = {}
+    if "all_rosters" in candidate:
+        full_roster_validation = validate_full_roster_coverage(
+            candidate["all_rosters"],
+            int(candidate["eligible"][0].season),
+        )
     roster_team_ids = [
         int(roster["teamId"])
         for roster in candidate["rosters"]
@@ -703,6 +749,7 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         **roster_validation,
+        **full_roster_validation,
         "player_seasons": len(candidate["player_seasons"]),
         "college_games": len(candidate["games"]),
         "final_games": sum(
@@ -726,22 +773,25 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 def candidate_checksum(candidate: dict[str, Any]) -> str:
     digest = hashlib.sha256()
+    keys = [
+        "rankings",
+        "eligible",
+        "rosters",
+        "player_seasons",
+        "games",
+        "lineups",
+        "opponent_contexts",
+        "skipped_lineup_game_ids",
+        "unavailable_lineup_game_teams",
+    ]
+    if "all_rosters" in candidate:
+        keys.insert(3, "all_rosters")
     serializable = {
         key: [
             row.__dict__ if hasattr(row, "__dict__") else row
             for row in candidate[key]
         ]
-        for key in (
-            "rankings",
-            "eligible",
-            "rosters",
-            "player_seasons",
-            "games",
-            "lineups",
-            "opponent_contexts",
-            "skipped_lineup_game_ids",
-            "unavailable_lineup_game_teams",
-        )
+        for key in keys
     }
     digest.update(
         json.dumps(
@@ -761,7 +811,7 @@ def write_candidate_bundle(
     release_version: str,
 ) -> None:
     """Publish the assembled candidate and its completion manifest last."""
-    candidate_keys = (
+    candidate_keys = [
         "rankings",
         "rosters",
         "player_seasons",
@@ -770,37 +820,42 @@ def write_candidate_bundle(
         "opponent_contexts",
         "skipped_lineup_game_ids",
         "unavailable_lineup_game_teams",
-    )
+    ]
+    format_version = 3
+    if "all_rosters" in candidate:
+        candidate_keys.insert(2, "all_rosters")
+        format_version = ARCHIVE_FORMAT_VERSION
     write_json(
         source_dir / "candidate.json",
         {key: candidate[key] for key in candidate_keys},
     )
     checksum = candidate_checksum(candidate)
+    manifest_counts = {
+        "rankings": len(candidate["rankings"]),
+        "eligible_teams": len(candidate["eligible"]),
+        "rosters": len(candidate["rosters"]),
+        "player_seasons": len(candidate["player_seasons"]),
+        "games": len(candidate["games"]),
+        "lineups": len(candidate["lineups"]),
+        "opponent_contexts": len(candidate["opponent_contexts"]),
+        "skipped_lineup_games": len(candidate["skipped_lineup_game_ids"]),
+        "unavailable_lineup_game_teams": len(
+            candidate["unavailable_lineup_game_teams"]
+        ),
+    }
+    if "all_rosters" in candidate:
+        manifest_counts["all_rosters"] = len(candidate["all_rosters"])
     write_json(
         source_dir / "manifest.json",
         {
-            "format_version": ARCHIVE_FORMAT_VERSION,
+            "format_version": format_version,
             "status": "complete",
             "season": season,
             "release_version": release_version,
             "candidate_file": "candidate.json",
             "candidate_sha256": checksum,
             "completed_at": datetime.now(timezone.utc),
-            "counts": {
-                "rankings": len(candidate["rankings"]),
-                "eligible_teams": len(candidate["eligible"]),
-                "rosters": len(candidate["rosters"]),
-                "player_seasons": len(candidate["player_seasons"]),
-                "games": len(candidate["games"]),
-                "lineups": len(candidate["lineups"]),
-                "opponent_contexts": len(candidate["opponent_contexts"]),
-                "skipped_lineup_games": len(
-                    candidate["skipped_lineup_game_ids"]
-                ),
-                "unavailable_lineup_game_teams": len(
-                    candidate["unavailable_lineup_game_teams"]
-                ),
-            },
+            "counts": manifest_counts,
         },
     )
     print(f"download: complete source bundle -> {source_dir}", flush=True)
@@ -821,8 +876,12 @@ def load_candidate_bundle(
     manifest = read_json(manifest_path)
     if not isinstance(manifest, dict):
         raise ValueError(f"source bundle manifest is invalid: {manifest_path}")
+    format_version = manifest.get("format_version")
+    if format_version not in LEGACY_ARCHIVE_FORMAT_VERSIONS | {ARCHIVE_FORMAT_VERSION}:
+        raise ValueError(
+            f"source bundle format_version is unsupported: {format_version!r}"
+        )
     expected_manifest = {
-        "format_version": ARCHIVE_FORMAT_VERSION,
         "status": "complete",
         "season": season,
         "release_version": release_version,
@@ -847,10 +906,14 @@ def load_candidate_bundle(
         "skipped_lineup_game_ids",
         "unavailable_lineup_game_teams",
     }
+    if format_version == ARCHIVE_FORMAT_VERSION:
+        required_keys.add("all_rosters")
     missing = sorted(required_keys - set(raw_candidate))
     if missing:
         raise ValueError(f"source bundle candidate is missing keys: {missing}")
     candidate = dict(raw_candidate)
+    if format_version == ARCHIVE_FORMAT_VERSION:
+        validate_full_roster_coverage(candidate["all_rosters"], season)
     candidate["eligible"] = build_eligible_teams(candidate["rankings"], season)
     validate_ap_top25_coverage(candidate["eligible"])
     actual_checksum = candidate_checksum(candidate)
@@ -883,7 +946,7 @@ def candidate_school_names(candidate: dict[str, Any]) -> dict[int, str]:
     """Collect source school labels for both current and historical rows."""
 
     names = candidate_reference_school_names(candidate)
-    for roster in candidate["rosters"]:
+    for roster in candidate.get("all_rosters", candidate["rosters"]):
         team_id = int(roster["teamId"])
         name = str(roster.get("team") or "").strip()
         if not name:
@@ -1072,9 +1135,11 @@ def publish_candidate(
     reference_schools: list[tuple[int, str]],
 ) -> None:
     eligible_ids = [row.team_id for row in candidate["eligible"]]
+    roster_scope = candidate.get("all_rosters", candidate["rosters"])
+    roster_team_ids = sorted({int(roster["teamId"]) for roster in roster_scope})
     roster_players = [
         (roster, player)
-        for roster in candidate["rosters"]
+        for roster in roster_scope
         for player in roster.get("players", [])
     ]
     all_player_names: dict[int, tuple[str, str | None]] = {}
@@ -1192,7 +1257,7 @@ def publish_candidate(
             SET source_active = FALSE, updated_at = now()
             WHERE season = %s AND team_id = ANY(%s)
             """,
-            (season, eligible_ids),
+            (season, roster_team_ids),
         )
         execute_values(
             cursor,
@@ -1246,7 +1311,7 @@ def publish_candidate(
               AND membership.season = %s
               AND membership.team_id = ANY(%s)
             """,
-            (season, eligible_ids),
+            (season, roster_team_ids),
         )
         # Lineup rows are source-owned and have no independent application
         # lifecycle column. Replace only the eligible season/team scope; the
@@ -1265,7 +1330,7 @@ def publish_candidate(
             FROM team_roster_memberships
             WHERE season = %s AND team_id = ANY(%s) AND source_active
             """,
-            (season, eligible_ids),
+            (season, roster_team_ids),
         )
         membership_ids = {
             (player_id, team_id): membership_id
@@ -1633,7 +1698,9 @@ def main() -> None:
         counts = {
             "schools": len(reference_schools),
             "team_season_eligibility": len(candidate["eligible"]),
-            "team_roster_memberships": validation["roster_players"],
+            "team_roster_memberships": validation.get(
+                "full_roster_players", validation["roster_players"]
+            ),
             "player_seasons": len(candidate["player_seasons"]),
             "college_games": len(candidate["games"]),
             "team_game_lineups": len(candidate["lineups"]),
