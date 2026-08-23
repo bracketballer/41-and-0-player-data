@@ -1,0 +1,107 @@
+{
+  "id": 41344836,
+  "team": "Cornell",
+  "clock": "1:11",
+  "gameId": 358365,
+  "period": 2,
+  "season": 2026,
+  "teamId": 60,
+  "onFloor": [
+    {
+      "id": 2384,
+      "name": "Jacob Beccles",
+      "team": "Cornell"
+    },
+    {
+      "id": 2371,
+      "name": "Cooper Noard",
+      "team": "Cornell"
+    },
+    {
+      "id": 4598,
+      "name": "Cade Norris",
+      "team": "Samford"
+    },
+    {
+      "id": 2385,
+      "name": "Adam Hinton",
+      "team": "Cornell"
+    },
+    {
+      "id": 2372,
+      "name": "Josh Baldwin",
+      "team": "Cornell"
+    },
+    {
+      "id": 2370,
+      "name": "Jake Fiegen",
+      "team": "Cornell"
+    },
+    {
+      "id": 31618,
+      "name": "Jadin Booth",
+      "team": "Samford"
+    },
+    {
+      "id": 3685,
+      "name": "Zion Wilburn",
+      "team": "Samford"
+    },
+    {
+      "id": 549,
+      "name": "Keaton Norris",
+      "team": "Samford"
+    },
+    {
+      "id": 5536,
+      "name": "Dylan Faulkner",
+      "team": "Samford"
+    }
+  ],
+  "gameType": "STD",
+  "opponent": "Samford",
+  "playText": "Cooper Noard made Jumper.",
+  "playType": "JumpShot",
+  "shotInfo": {
+    "made": true,
+    "range": "jumper",
+    "shooter": {
+      "id": 2371,
+      "name": "Cooper Noard"
+    },
+    "assisted": false,
+    "location": {
+      "x": 846,
+      "y": 245
+    },
+    "assistedBy": {
+      "id": null,
+      "name": null
+    }
+  },
+  "sourceId": "401829434115684046",
+  "teamSeed": null,
+  "awayScore": 84,
+  "homeScore": 84,
+  "wallclock": "2025-12-08T01:59:26+00:00",
+  "conference": "Ivy",
+  "isHomeTeam": false,
+  "opponentId": 256,
+  "scoreValue": 2,
+  "seasonType": "regular",
+  "tournament": null,
+  "scoringPlay": true,
+  "gameSourceId": "401829434",
+  "opponentSeed": null,
+  "participants": [
+    {
+      "id": 2371,
+      "name": "Cooper Noard"
+    }
+  ],
+  "shootingPlay": true,
+  "gameStartDate": "2025-12-08T00:00:00+00:00",
+  "secondsRemaining": 71,
+  "homeWinProbability": 0.566,
+  "opponentConference": "SoCon"
+}
