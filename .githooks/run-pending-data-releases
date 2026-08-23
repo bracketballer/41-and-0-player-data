@@ -1,0 +1,54 @@
+#!/bin/sh
+set -u
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+
+if [ ! -x "${PYTHON_BIN}" ]; then
+	printf '%s\n' "data releases: skipped (missing .venv); run scripts/setup-local.sh, then python -m scripts.apply_pending_data_releases" >&2
+	exit 0
+fi
+
+cd "${REPO_ROOT}" || exit 1
+
+environment_state=$("${PYTHON_BIN}" -c '
+import os
+from bracketballer_data.database import load_env_file
+from scripts.apply_pending_data_releases import is_local_database, database_host
+load_env_file()
+if not all(os.environ.get(name, "").strip() for name in ("DO_SPACES_BUCKET", "DO_SPACES_ACCESS_KEY_ID", "DO_SPACES_SECRET_ACCESS_KEY")):
+    print("missing-spaces")
+elif not os.environ.get("DATABASE_URL") and not (os.environ.get("PSQL_USER") and os.environ.get("DEV_DB")):
+    print("missing-db")
+else:
+    dsn = os.environ.get("DATABASE_URL", "") or "host=" + os.environ.get("PSQL_HOST", "localhost")
+    print("local" if is_local_database(dsn) else "remote:" + database_host(dsn))
+')
+environment_status=$?
+if [ "${environment_status}" -ne 0 ]; then
+	printf '%s\n' "data releases: FAILED to inspect local setup (status ${environment_status})" >&2
+	exit "${environment_status}"
+fi
+case "${environment_state}" in
+	missing-spaces)
+		printf '%s\n' "data releases: skipped (Spaces credentials are not configured); run python -m scripts.apply_pending_data_releases manually after configuring DO_SPACES_*" >&2
+		exit 0
+		;;
+	missing-db)
+		printf '%s\n' "data releases: skipped (local database is not configured); run python -m scripts.apply_pending_data_releases manually after configuring DATABASE_URL or PSQL_USER/DEV_DB" >&2
+		exit 0
+		;;
+	remote:*)
+		printf '%s\n' "data releases: skipped (database host ${environment_state#remote:} is remote); run python -m scripts.apply_pending_data_releases --allow-remote manually" >&2
+		exit 0
+		;;
+esac
+
+"${PYTHON_BIN}" -m scripts.apply_pending_data_releases
+status=$?
+if [ "${status}" -ne 0 ]; then
+	printf '%s\n' "data releases: FAILED to apply a checked-in release (status ${status}); inspect the artifact/database and rerun manually" >&2
+	exit "${status}"
+fi
+exit 0

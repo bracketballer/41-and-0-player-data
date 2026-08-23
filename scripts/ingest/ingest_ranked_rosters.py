@@ -1,8 +1,9 @@
-"""Ingest AP Top 25 + Virginia Tech rosters and game-lineup evidence.
+"""Download and ingest AP Top 25 + Virginia Tech roster evidence.
 
-The command fetches a complete season candidate, validates it, and is a dry run
-unless --apply is supplied. A team remains eligible once it appears in any AP
-rank 1-25 response; Virginia Tech (CBBD team 340) is always included.
+Use --download first to create a resumable, release-specific source bundle.
+Subsequent dry-run and --apply invocations read only that local bundle and do
+not call CBBD. A team remains eligible once it appears in any AP rank 1-25
+response; Virginia Tech (CBBD team 340) is always included.
 """
 
 from __future__ import annotations
@@ -13,16 +14,66 @@ import json
 import os
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
-import cbbd
-import psycopg2
-from cbbd.rest import ApiException
-from psycopg2.extras import Json, execute_values
-from pydantic import ValidationError
+try:  # Optional until a network or database phase is requested.
+    import cbbd
+    from cbbd.rest import ApiException
+    _CBBD_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised only in lightweight tooling
+    class _MissingCbbd:
+        class ApiClient:  # pragma: no cover - only a patch target in offline tests
+            pass
+
+        class Configuration:
+            pass
+
+        class RankingsApi:
+            pass
+
+        class TeamsApi:
+            pass
+
+        class StatsApi:
+            pass
+
+        class GamesApi:
+            pass
+
+        class LineupsApi:
+            pass
+
+    cbbd = _MissingCbbd()  # type: ignore[assignment]
+    _CBBD_AVAILABLE = False
+
+    class ApiException(Exception):
+        status = None
+
+try:
+    import psycopg2
+    from psycopg2.extras import Json, execute_values
+except ImportError:  # pragma: no cover - pure bundle validation needs no driver
+    class _MissingPsycopg:
+        @staticmethod
+        def connect(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("psycopg2 is required for ranked-roster publication")
+
+    psycopg2 = _MissingPsycopg()  # type: ignore[assignment]
+
+    def Json(value: Any) -> Any:
+        return value
+
+    def execute_values(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("psycopg2 is required for ranked-roster publication")
+
+try:
+    from pydantic import ValidationError
+except ImportError:  # pragma: no cover - optional SDK dependency
+    class ValidationError(Exception):
+        pass
 
 from bracketballer_data.database import connection_dsn, load_env_file
 from bracketballer_data.import_audit import (
@@ -35,17 +86,20 @@ from bracketballer_data.ranked_rosters import (
     FIRST_SUPPORTED_SEASON,
     build_eligible_teams,
     normalize_positions,
+    validate_ap_top25_coverage,
     validate_roster_coverage,
 )
 from scripts.ingest.reconcile_torvik_ids import match_all
 
-from bracketballer_data.paths import REPO_ROOT
+from bracketballer_data.paths import RAW_RANKED_ROSTERS, REPO_ROOT
+
+ARCHIVE_FORMAT_VERSION = 3
 GAME_WINDOW_DAYS = 14
 PLAYER_HISTORY_FIRST_SEASON = 2005
 
 
 def json_default(value: Any) -> Any:
-    if isinstance(value, datetime):
+    if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, Enum):
         return value.value
@@ -70,8 +124,9 @@ def call_with_retries(call: Callable[[], Any], retries: int) -> Any:
             return call()
         except Exception as error:
             status = getattr(error, "status", None)
-            retryable = not isinstance(error, ApiException) or (
-                status is None or status == 429 or status >= 500
+            retryable = not isinstance(error, (ApiException, ValidationError)) or (
+                isinstance(error, ApiException)
+                and (status is None or status == 429 or status >= 500)
             )
             if attempt == retries or not retryable:
                 raise
@@ -79,14 +134,225 @@ def call_with_retries(call: Callable[[], Any], retries: int) -> Any:
     raise AssertionError("retry loop exited")
 
 
-def fetch_games(games_api: Any, season: int, retries: int) -> list[dict[str, Any]]:
+def source_directory(
+    season: int,
+    release_version: str,
+    override: Path | None = None,
+) -> Path:
+    """Return the immutable local source directory for one release."""
+    if override is not None:
+        return override
+    if (
+        not release_version
+        or release_version in {".", ".."}
+        or any(
+            character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+            for character in release_version
+        )
+    ):
+        raise ValueError(
+            "release-version may contain only letters, numbers, '.', '_', and '-'"
+        )
+    return RAW_RANKED_ROSTERS / str(season) / release_version
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read cached CBBD response {path}: {error}") from error
+
+
+def write_json(path: Path, value: Any) -> None:
+    """Atomically publish one cache file so interrupted writes are ignored."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.part")
+    temporary.write_text(
+        json.dumps(value, default=json_default, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def cached_rows(
+    path: Path,
+    fetch: Callable[[], Any],
+    retries: int,
+    label: str,
+) -> list[dict[str, Any]]:
+    """Load an atomic JSON checkpoint or fetch and checkpoint it once."""
+    if path.exists():
+        rows = read_json(path)
+        if not isinstance(rows, list):
+            raise ValueError(f"cached CBBD response is not a list: {path}")
+        print(f"{label}: using {len(rows)} cached row(s)", flush=True)
+        return rows
+    response = call_with_retries(fetch, retries)
+    rows = [payload(row) for row in response or []]
+    write_json(path, rows)
+    print(f"{label}: downloaded {len(rows)} row(s) -> {path}", flush=True)
+    return rows
+
+
+def raw_lineup_rows(
+    lineups_api: Any,
+    game_id: int,
+    retries: int,
+) -> list[dict[str, Any]]:
+    """Fetch lineup JSON without the SDK's overly strict response models."""
+
+    response = call_with_retries(
+        lambda: lineups_api.get_lineup_stats_by_game_with_http_info(
+            game_id=game_id,
+            _preload_content=False,
+            _request_timeout=(10, 120),
+        ),
+        retries,
+    )
+    try:
+        raw = response.raw_data
+        if hasattr(raw, "read"):
+            raw = raw.read()
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        rows = json.loads(raw)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"lineups for game {game_id} are not valid JSON") from error
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError(f"lineups for game {game_id} are not a JSON row list")
+    return rows
+
+
+def supplement_rosters_from_lineups(
+    rosters: list[dict[str, Any]],
+    lineups: list[dict[str, Any]],
+) -> int:
+    """Add evidence-backed season memberships absent from the roster snapshot."""
+
+    rosters_by_team = {int(roster["teamId"]): roster for roster in rosters}
+    memberships = {
+        (int(roster["teamId"]), int(player["id"]))
+        for roster in rosters
+        for player in roster.get("players", [])
+    }
+    inferred = 0
+    for lineup in lineups:
+        team_id = int(lineup["teamId"])
+        roster = rosters_by_team.get(team_id)
+        if roster is None:
+            continue
+        for athlete in lineup.get("athletes") or []:
+            membership = (team_id, int(athlete["id"]))
+            if membership in memberships:
+                continue
+            roster.setdefault("players", []).append(
+                {
+                    "id": int(athlete["id"]),
+                    "name": athlete["name"],
+                    "sourceId": None,
+                    "_membershipEvidence": "lineup",
+                }
+            )
+            memberships.add(membership)
+            inferred += 1
+    return inferred
+
+
+def lineup_reconciliation_failure(
+    game: dict[str, Any],
+    team_id: int,
+    lineups: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    expected_points = (
+        game.get("homePoints")
+        if int(game["homeTeamId"]) == team_id
+        else game.get("awayPoints")
+    )
+    seconds = sum(float(lineup.get("totalSeconds") or 0) for lineup in lineups)
+    points = sum(
+        int((lineup.get("teamStats") or {}).get("points") or 0)
+        for lineup in lineups
+    )
+    if seconds < 2300 or seconds > 4000 or (
+        expected_points is not None and points != int(expected_points)
+    ):
+        return {
+            "game_id": int(game["id"]),
+            "team_id": team_id,
+            "reason": "failed_reconciliation",
+            "lineup_seconds": seconds,
+            "lineup_points": points,
+            "game_points": expected_points,
+        }
+    return None
+
+
+def select_reconciled_lineups(
+    games: list[dict[str, Any]],
+    lineups: list[dict[str, Any]],
+    eligible_ids: set[int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep reliable lineup evidence and audit unavailable team/game pairs."""
+
+    games_by_id = {int(game["id"]): game for game in games}
+    expected_pairs = {
+        (int(game["id"]), team_id)
+        for game in games
+        if str(game.get("status")) == "final"
+        for team_id in (int(game["homeTeamId"]), int(game["awayTeamId"]))
+        if team_id in eligible_ids
+    }
+    lineups_by_pair: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for lineup in lineups:
+        pair = (int(lineup["_gameId"]), int(lineup["teamId"]))
+        lineups_by_pair.setdefault(pair, []).append(lineup)
+
+    unavailable = [
+        {
+            "game_id": game_id,
+            "team_id": team_id,
+            "reason": "missing_source_rows",
+        }
+        for game_id, team_id in sorted(expected_pairs - set(lineups_by_pair))
+    ]
+    rejected_pairs: set[tuple[int, int]] = set()
+    for (game_id, team_id), rows in sorted(lineups_by_pair.items()):
+        failure = lineup_reconciliation_failure(
+            games_by_id[game_id],
+            team_id,
+            rows,
+        )
+        if failure is not None:
+            unavailable.append(failure)
+            rejected_pairs.add((game_id, team_id))
+
+    selected = [
+        lineup
+        for lineup in lineups
+        if (int(lineup["_gameId"]), int(lineup["teamId"])) not in rejected_pairs
+    ]
+    return selected, unavailable
+
+
+def fetch_games(
+    games_api: Any,
+    season: int,
+    retries: int,
+    source_dir: Path,
+) -> list[dict[str, Any]]:
     start = datetime(season - 1, 10, 1, tzinfo=timezone.utc)
     end = datetime(season, 5, 15, tzinfo=timezone.utc)
     games: dict[int, dict[str, Any]] = {}
     cursor = start
     while cursor < end:
         window_end = min(end, cursor + timedelta(days=GAME_WINDOW_DAYS))
-        rows = call_with_retries(
+        cache_path = (
+            source_dir
+            / "games"
+            / f"{cursor.date().isoformat()}_{window_end.date().isoformat()}.json"
+        )
+        rows = cached_rows(
+            cache_path,
             lambda left=cursor, right=window_end: games_api.get_games(
                 season=season,
                 start_date_range=left,
@@ -94,9 +360,9 @@ def fetch_games(games_api: Any, season: int, retries: int) -> list[dict[str, Any
                 _request_timeout=(10, 120),
             ),
             retries,
+            f"games {cursor.date()} to {window_end.date()}",
         )
-        for row in rows or []:
-            item = payload(row)
+        for item in rows:
             games[int(item["id"])] = item
         cursor = window_end
     return sorted(games.values(), key=lambda row: int(row["id"]))
@@ -106,7 +372,26 @@ def fetch_candidate(
     access_token: str,
     season: int,
     retries: int,
+    source_dir: Path,
+    release_version: str,
 ) -> dict[str, Any]:
+    if not _CBBD_AVAILABLE:
+        raise RuntimeError("cbbd is required for --download; install requirements.txt")
+    manifest_path = source_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = read_json(manifest_path)
+        if (
+            isinstance(manifest, dict)
+            and manifest.get("format_version") == ARCHIVE_FORMAT_VERSION
+        ):
+            print(f"download: using complete source bundle {source_dir}", flush=True)
+            return load_candidate_bundle(source_dir, season, release_version)
+        print(
+            f"download: upgrading source bundle to format "
+            f"{ARCHIVE_FORMAT_VERSION}; valid checkpoints will be reused",
+            flush=True,
+        )
+
     configuration = cbbd.Configuration(access_token=access_token)
     with cbbd.ApiClient(configuration) as client:
         rankings_api = cbbd.RankingsApi(client)
@@ -115,32 +400,45 @@ def fetch_candidate(
         games_api = cbbd.GamesApi(client)
         lineups_api = cbbd.LineupsApi(client)
 
-        rankings = [
-            payload(row)
-            for row in call_with_retries(
-                lambda: rankings_api.get_rankings(
-                    season=season,
-                    poll_type="ap",
-                    _request_timeout=(10, 120),
-                ),
-                retries,
-            )
-            or []
-        ]
+        rankings = cached_rows(
+            source_dir / "rankings.json",
+            lambda: rankings_api.get_rankings(
+                season=season,
+                poll_type="ap",
+                _request_timeout=(10, 120),
+            ),
+            retries,
+            "rankings",
+        )
         eligible = build_eligible_teams(rankings, season)
+        try:
+            validate_ap_top25_coverage(eligible)
+        except ValueError as error:
+            observed_poll_types = sorted(
+                {
+                    str(row.get("pollType", row.get("poll_type", "")))
+                    for row in rankings
+                }
+            )
+            raise ValueError(
+                f"{error}; ranking_rows={len(rankings)}, "
+                f"observed_poll_types={observed_poll_types}"
+            ) from error
         eligible_ids = {row.team_id for row in eligible}
 
-        roster_responses = call_with_retries(
+        roster_responses = cached_rows(
+            source_dir / "rosters.json",
             lambda: teams_api.get_team_roster(
                 season=season,
                 _request_timeout=(10, 120),
             ),
             retries,
+            "rosters",
         )
         rosters = [
-            payload(row)
-            for row in roster_responses or []
-            if int(payload(row)["teamId"]) in eligible_ids
+            row
+            for row in roster_responses
+            if int(row["teamId"]) in eligible_ids
         ]
         roster_player_ids = {
             int(player["id"])
@@ -154,22 +452,46 @@ def fetch_candidate(
         # Historical rows are priors only; lineup/scheme evidence still starts
         # with the 2024 season.
         for candidate_season in range(PLAYER_HISTORY_FIRST_SEASON, season + 1):
-            rows = call_with_retries(
-                lambda selected=candidate_season: stats_api.get_player_season_stats(
-                    season=selected,
-                    _request_timeout=(10, 180),
-                ),
-                retries,
-            )
+            cache_path = source_dir / "player_seasons" / f"{candidate_season}.json"
+            if cache_path.exists():
+                selected_rows = read_json(cache_path)
+                if not isinstance(selected_rows, list):
+                    raise ValueError(
+                        f"cached player-season response is not a list: {cache_path}"
+                    )
+                print(
+                    f"player seasons {candidate_season}: using "
+                    f"{len(selected_rows)} cached row(s)",
+                    flush=True,
+                )
+            else:
+                rows = call_with_retries(
+                    lambda selected=candidate_season: stats_api.get_player_season_stats(
+                        season=selected,
+                        _request_timeout=(10, 180),
+                    ),
+                    retries,
+                )
+                selected_rows = [
+                    item
+                    for item in (payload(row) for row in rows or [])
+                    if int(item["athleteId"]) in roster_player_ids
+                ]
+                write_json(cache_path, selected_rows)
+                print(
+                    f"player seasons {candidate_season}: downloaded "
+                    f"{len(selected_rows)} eligible row(s) -> {cache_path}",
+                    flush=True,
+                )
             player_seasons.extend(
                 item
-                for item in (payload(row) for row in rows or [])
+                for item in selected_rows
                 if int(item["athleteId"]) in roster_player_ids
             )
 
         games = [
             game
-            for game in fetch_games(games_api, season, retries)
+            for game in fetch_games(games_api, season, retries, source_dir)
             if int(game["homeTeamId"]) in eligible_ids
             or int(game["awayTeamId"]) in eligible_ids
         ]
@@ -179,34 +501,74 @@ def fetch_candidate(
         lineups: list[dict[str, Any]] = []
         skipped_game_ids: list[int] = []
         for index, game in enumerate(final_games, start=1):
-            try:
-                rows = call_with_retries(
-                    lambda game_id=int(game["id"]): lineups_api.get_lineup_stats_by_game(
-                        game_id=game_id,
-                        _request_timeout=(10, 120),
-                    ),
-                    retries,
+            game_id = int(game["id"])
+            participant_ids = {
+                int(game["homeTeamId"]),
+                int(game["awayTeamId"]),
+            }
+            cache_path = source_dir / "lineups" / f"{game_id}.json"
+            if cache_path.exists():
+                cached = read_json(cache_path)
+                if not isinstance(cached, dict):
+                    raise ValueError(f"cached lineup response is invalid: {cache_path}")
+            if (
+                not cache_path.exists()
+                or cached.get("status") == "skipped_validation_error"
+            ):
+                cached = {
+                    "status": "ok",
+                    "transport": "raw_json",
+                    "rows": raw_lineup_rows(lineups_api, game_id, retries),
+                }
+                write_json(cache_path, cached)
+            if cached.get("status") != "ok" or not isinstance(
+                cached.get("rows"), list
+            ):
+                raise ValueError(f"cached lineup response is invalid: {cache_path}")
+            if not cached["rows"]:
+                skipped_game_ids.append(game_id)
+            else:
+                for item in cached["rows"]:
+                    if (
+                        int(item["teamId"]) in eligible_ids
+                        and int(item["teamId"]) in participant_ids
+                    ):
+                        item["_gameId"] = game_id
+                        item["_season"] = season
+                        lineups.append(item)
+            if index % 25 == 0 or index == len(final_games):
+                print(
+                    f"lineups: checkpointed {index}/{len(final_games)} final games",
+                    flush=True,
                 )
-            except ValidationError:
-                # CBBD occasionally returns a lineup segment with a null
-                # defenseRating/netRating (very-low-sample lineups), which the
-                # cbbd client's typed model rejects outright. That crashes
-                # deserialization for the whole game's lineup list, not just
-                # the offending row, so the only unit we can skip is the game.
-                skipped_game_ids.append(int(game["id"]))
-                continue
-            for row in rows or []:
-                item = payload(row)
-                if int(item["teamId"]) in eligible_ids:
-                    item["_gameId"] = int(game["id"])
-                    item["_season"] = season
-                    lineups.append(item)
-            if index % 50 == 0:
-                print(f"lineups: fetched {index}/{len(final_games)} final games")
         if skipped_game_ids:
             print(
-                f"lineups: skipped {len(skipped_game_ids)} game(s) with unparseable "
-                f"lineup ratings: {skipped_game_ids}"
+                f"lineups: CBBD returned no lineup rows for "
+                f"{len(skipped_game_ids)} game(s): {skipped_game_ids}"
+            )
+
+        lineups, unavailable_lineup_game_teams = select_reconciled_lineups(
+            games,
+            lineups,
+            eligible_ids,
+        )
+        if unavailable_lineup_game_teams:
+            reason_counts: dict[str, int] = {}
+            for row in unavailable_lineup_game_teams:
+                reason = str(row["reason"])
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            print(
+                "lineups: excluded unavailable team/game evidence "
+                f"{reason_counts}",
+                flush=True,
+            )
+
+        inferred_roster_players = supplement_rosters_from_lineups(rosters, lineups)
+        if inferred_roster_players:
+            print(
+                f"rosters: added {inferred_roster_players} player-team membership(s) "
+                "from lineup evidence",
+                flush=True,
             )
 
         opponent_ids: set[int] = set()
@@ -217,19 +579,21 @@ def fetch_candidate(
                 opponent_ids.add(away_team_id)
             if away_team_id in eligible_ids:
                 opponent_ids.add(home_team_id)
-        team_stats = call_with_retries(
+        team_stats = cached_rows(
+            source_dir / "team_stats.json",
             lambda: stats_api.get_team_season_stats(
                 season=season,
                 _request_timeout=(10, 180),
             ),
             retries,
+            "team stats",
         )
         opponent_contexts = [
-            payload(row)
-            for row in team_stats or []
-            if int(payload(row)["teamId"]) in opponent_ids
+            row
+            for row in team_stats
+            if int(row["teamId"]) in opponent_ids
         ]
-    return {
+    candidate = {
         "rankings": rankings,
         "eligible": eligible,
         "rosters": rosters,
@@ -238,7 +602,10 @@ def fetch_candidate(
         "lineups": lineups,
         "opponent_contexts": opponent_contexts,
         "skipped_lineup_game_ids": skipped_game_ids,
+        "unavailable_lineup_game_teams": unavailable_lineup_game_teams,
     }
+    write_candidate_bundle(source_dir, candidate, season, release_version)
+    return candidate
 
 
 def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -294,41 +661,33 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         if team_id in eligible_ids
     }
     skipped_lineup_game_ids = set(candidate.get("skipped_lineup_game_ids") or [])
+    unavailable_lineup_pairs = {
+        (int(row["game_id"]), int(row["team_id"]))
+        for row in candidate.get("unavailable_lineup_game_teams") or []
+    }
     all_missing_game_lineups = expected_game_teams - set(lineups_by_game_team)
-    # A game already logged in fetch_candidate as skipped for the known
-    # null-rating CBBD bug (#16) is an expected gap, not a validation
-    # failure -- only an *unexplained* missing lineup should hard-fail.
+    # CBBD legitimately returns an empty lineup array for a small number of
+    # games. Keep those source gaps explicit; only an unexplained missing
+    # lineup should hard-fail.
     known_missing_game_lineups = sorted(
-        pair for pair in all_missing_game_lineups if pair[0] in skipped_lineup_game_ids
+        pair
+        for pair in all_missing_game_lineups
+        if pair[0] in skipped_lineup_game_ids or pair in unavailable_lineup_pairs
     )
     missing_game_lineups = sorted(
-        pair for pair in all_missing_game_lineups if pair[0] not in skipped_lineup_game_ids
+        pair
+        for pair in all_missing_game_lineups
+        if pair[0] not in skipped_lineup_game_ids and pair not in unavailable_lineup_pairs
     )
     reconciliation_failures: list[dict[str, Any]] = []
     for (game_id, team_id), lineups in lineups_by_game_team.items():
-        game = game_by_id[game_id]
-        expected_points = (
-            game.get("homePoints")
-            if int(game["homeTeamId"]) == team_id
-            else game.get("awayPoints")
+        failure = lineup_reconciliation_failure(
+            game_by_id[game_id],
+            team_id,
+            lineups,
         )
-        seconds = sum(float(lineup.get("totalSeconds") or 0) for lineup in lineups)
-        points = sum(
-            int((lineup.get("teamStats") or {}).get("points") or 0)
-            for lineup in lineups
-        )
-        if seconds < 2300 or seconds > 4000 or (
-            expected_points is not None and points != int(expected_points)
-        ):
-            reconciliation_failures.append(
-                {
-                    "game_id": game_id,
-                    "team_id": team_id,
-                    "lineup_seconds": seconds,
-                    "lineup_points": points,
-                    "game_points": expected_points,
-                }
-            )
+        if failure is not None:
+            reconciliation_failures.append(failure)
     if (
         unresolved
         or invalid_lineups
@@ -351,11 +710,17 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         ),
         "team_game_lineups": len(candidate["lineups"]),
         "opponent_contexts": len(candidate["opponent_contexts"]),
+        "lineup_inferred_roster_players": sum(
+            player.get("_membershipEvidence") == "lineup"
+            for roster in candidate["rosters"]
+            for player in roster.get("players", [])
+        ),
         "unresolved_lineup_players": 0,
         "invalid_lineups": 0,
         "missing_game_lineups": 0,
         "reconciliation_failures": 0,
         "known_skipped_game_lineups": len(known_missing_game_lineups),
+        "unavailable_lineup_game_teams": len(unavailable_lineup_pairs),
     }
 
 
@@ -367,12 +732,15 @@ def candidate_checksum(candidate: dict[str, Any]) -> str:
             for row in candidate[key]
         ]
         for key in (
+            "rankings",
             "eligible",
             "rosters",
             "player_seasons",
             "games",
             "lineups",
             "opponent_contexts",
+            "skipped_lineup_game_ids",
+            "unavailable_lineup_game_teams",
         )
     }
     digest.update(
@@ -386,18 +754,191 @@ def candidate_checksum(candidate: dict[str, Any]) -> str:
     return digest.hexdigest()
 
 
-def ensure_known_schools(conn: Any, candidate: dict[str, Any]) -> None:
-    eligible_ids = {row.team_id for row in candidate["eligible"]}
-    season_team_ids = {
-        int(row["teamId"]) for row in candidate["player_seasons"]
+def write_candidate_bundle(
+    source_dir: Path,
+    candidate: dict[str, Any],
+    season: int,
+    release_version: str,
+) -> None:
+    """Publish the assembled candidate and its completion manifest last."""
+    candidate_keys = (
+        "rankings",
+        "rosters",
+        "player_seasons",
+        "games",
+        "lineups",
+        "opponent_contexts",
+        "skipped_lineup_game_ids",
+        "unavailable_lineup_game_teams",
+    )
+    write_json(
+        source_dir / "candidate.json",
+        {key: candidate[key] for key in candidate_keys},
+    )
+    checksum = candidate_checksum(candidate)
+    write_json(
+        source_dir / "manifest.json",
+        {
+            "format_version": ARCHIVE_FORMAT_VERSION,
+            "status": "complete",
+            "season": season,
+            "release_version": release_version,
+            "candidate_file": "candidate.json",
+            "candidate_sha256": checksum,
+            "completed_at": datetime.now(timezone.utc),
+            "counts": {
+                "rankings": len(candidate["rankings"]),
+                "eligible_teams": len(candidate["eligible"]),
+                "rosters": len(candidate["rosters"]),
+                "player_seasons": len(candidate["player_seasons"]),
+                "games": len(candidate["games"]),
+                "lineups": len(candidate["lineups"]),
+                "opponent_contexts": len(candidate["opponent_contexts"]),
+                "skipped_lineup_games": len(
+                    candidate["skipped_lineup_game_ids"]
+                ),
+                "unavailable_lineup_game_teams": len(
+                    candidate["unavailable_lineup_game_teams"]
+                ),
+            },
+        },
+    )
+    print(f"download: complete source bundle -> {source_dir}", flush=True)
+
+
+def load_candidate_bundle(
+    source_dir: Path,
+    season: int,
+    release_version: str,
+) -> dict[str, Any]:
+    """Load and verify a complete source bundle without calling CBBD."""
+    manifest_path = source_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"source bundle is incomplete or missing: {manifest_path}; "
+            "run this command with --download first"
+        )
+    manifest = read_json(manifest_path)
+    if not isinstance(manifest, dict):
+        raise ValueError(f"source bundle manifest is invalid: {manifest_path}")
+    expected_manifest = {
+        "format_version": ARCHIVE_FORMAT_VERSION,
+        "status": "complete",
+        "season": season,
+        "release_version": release_version,
+        "candidate_file": "candidate.json",
     }
-    required = eligible_ids | season_team_ids
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT id FROM schools WHERE id = ANY(%s)", (list(required),))
-        known = {row[0] for row in cursor.fetchall()}
-    missing = sorted(required - known)
+    for key, expected in expected_manifest.items():
+        if manifest.get(key) != expected:
+            raise ValueError(
+                f"source bundle manifest {key} does not match: "
+                f"expected={expected!r}, actual={manifest.get(key)!r}"
+            )
+    raw_candidate = read_json(source_dir / "candidate.json")
+    if not isinstance(raw_candidate, dict):
+        raise ValueError("source bundle candidate must be a JSON object")
+    required_keys = {
+        "rankings",
+        "rosters",
+        "player_seasons",
+        "games",
+        "lineups",
+        "opponent_contexts",
+        "skipped_lineup_game_ids",
+        "unavailable_lineup_game_teams",
+    }
+    missing = sorted(required_keys - set(raw_candidate))
     if missing:
-        raise ValueError(f"Schools are missing required CBBD ids: {missing}")
+        raise ValueError(f"source bundle candidate is missing keys: {missing}")
+    candidate = dict(raw_candidate)
+    candidate["eligible"] = build_eligible_teams(candidate["rankings"], season)
+    validate_ap_top25_coverage(candidate["eligible"])
+    actual_checksum = candidate_checksum(candidate)
+    if manifest.get("candidate_sha256") != actual_checksum:
+        raise ValueError(
+            "source bundle candidate checksum does not match its manifest"
+        )
+    return candidate
+
+
+def candidate_reference_school_names(
+    candidate: dict[str, Any],
+) -> dict[int, str]:
+    names: dict[int, str] = {}
+    for row in candidate["player_seasons"]:
+        team_id = int(row["teamId"])
+        name = str(row.get("team") or "").strip()
+        if not name:
+            raise ValueError(f"Player-season team {team_id} has no school name")
+        previous = names.setdefault(team_id, name)
+        if previous != name:
+            raise ValueError(
+                f"CBBD team {team_id} has conflicting names: "
+                f"{previous!r} and {name!r}"
+            )
+    return names
+
+
+def candidate_school_names(candidate: dict[str, Any]) -> dict[int, str]:
+    """Collect source school labels for both current and historical rows."""
+
+    names = candidate_reference_school_names(candidate)
+    for roster in candidate["rosters"]:
+        team_id = int(roster["teamId"])
+        name = str(roster.get("team") or "").strip()
+        if not name:
+            continue
+        previous = names.setdefault(team_id, name)
+        if previous != name:
+            raise ValueError(
+                f"CBBD team {team_id} has conflicting names: "
+                f"{previous!r} and {name!r}"
+            )
+    by_name: dict[str, int] = {}
+    for team_id, name in names.items():
+        previous_id = by_name.setdefault(name, team_id)
+        if previous_id != team_id:
+            raise ValueError(
+                f"CBBD school name {name!r} is used by ids "
+                f"{previous_id} and {team_id}"
+            )
+    return names
+
+
+def missing_reference_schools(
+    conn: Any,
+    candidate: dict[str, Any],
+) -> list[tuple[int, str]]:
+    """Return non-eligible historical schools that must be inserted."""
+
+    eligible_ids = {row.team_id for row in candidate["eligible"]}
+    reference_names = candidate_school_names(candidate)
+    required = eligible_ids | set(reference_names)
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, name FROM schools WHERE id = ANY(%s) OR name = ANY(%s)",
+            (list(required), list(reference_names.values())),
+        )
+        existing = cursor.fetchall()
+    known_ids = {int(row[0]) for row in existing}
+    missing_eligible = sorted(eligible_ids - known_ids)
+    if missing_eligible:
+        raise ValueError(
+            f"Eligible schools are missing required CBBD ids: {missing_eligible}"
+        )
+
+    existing_names = {str(name): int(team_id) for team_id, name in existing}
+    additions: list[tuple[int, str]] = []
+    for team_id in sorted(set(reference_names) - known_ids):
+        name = reference_names[team_id]
+        conflicting_id = existing_names.get(name)
+        if conflicting_id is not None and conflicting_id != team_id:
+            raise ValueError(
+                f"School name {name!r} already belongs to CBBD id {conflicting_id}, "
+                f"not {team_id}"
+            )
+        additions.append((team_id, name))
+    return additions
 
 
 def player_season_values(row: dict[str, Any]) -> tuple[Any, ...]:
@@ -528,6 +1069,7 @@ def publish_candidate(
     season: int,
     run_id: int,
     counts: dict[str, Any],
+    reference_schools: list[tuple[int, str]],
 ) -> None:
     eligible_ids = [row.team_id for row in candidate["eligible"]]
     roster_players = [
@@ -546,8 +1088,28 @@ def publish_candidate(
             int(row["athleteId"]),
             (row["name"], str(row.get("athleteSourceId") or "") or None),
         )
+    source_school_names = candidate_school_names(candidate)
+    school_values = [
+        (team_id, name, True, datetime.now(timezone.utc))
+        for team_id, name in sorted(source_school_names.items())
+    ]
+    for team_id, name in reference_schools:
+        if team_id not in source_school_names:
+            school_values.append((team_id, name, True, datetime.now(timezone.utc)))
 
     with conn.cursor() as cursor:
+        if school_values:
+            execute_values(
+                cursor,
+                """
+                INSERT INTO schools (id, name, source_active, source_updated_at)
+                VALUES %s
+                ON CONFLICT (id) DO UPDATE SET
+                    source_active = TRUE,
+                    source_updated_at = EXCLUDED.source_updated_at
+                """,
+                school_values,
+            )
         execute_values(
             cursor,
             """
@@ -683,6 +1245,17 @@ def publish_candidate(
             WHERE position.roster_membership_id = membership.id
               AND membership.season = %s
               AND membership.team_id = ANY(%s)
+            """,
+            (season, eligible_ids),
+        )
+        # Lineup rows are source-owned and have no independent application
+        # lifecycle column. Replace only the eligible season/team scope; the
+        # foreign-key cascade removes its five-player child rows. Other teams,
+        # seasons, and all application-owned tables remain untouched.
+        cursor.execute(
+            """
+            DELETE FROM team_game_lineups
+            WHERE season = %s AND team_id = ANY(%s)
             """,
             (season, eligible_ids),
         )
@@ -941,25 +1514,86 @@ def main() -> None:
     parser.add_argument("--season", type=int, required=True)
     parser.add_argument("--release-version", required=True)
     parser.add_argument("--max-retries", type=int, default=4)
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        help=(
+            "Local source bundle directory; defaults to "
+            "data/raw/ranked_rosters/<season>/<release-version>"
+        ),
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download or resume the local source bundle, then exit",
+    )
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     if args.season < FIRST_SUPPORTED_SEASON:
         parser.error("season must be 2024 or later")
     if args.max_retries < 1:
         parser.error("--max-retries must be positive")
+    if args.download and args.apply:
+        parser.error("--download and --apply are separate phases")
+
+    try:
+        source_dir = source_directory(
+            args.season,
+            args.release_version,
+            args.source_dir,
+        )
+    except ValueError as error:
+        parser.error(str(error))
 
     load_env_file()
-    access_token = os.environ.get("CBBD_API_KEY")
-    if not access_token:
-        raise SystemExit("Missing CBBD_API_KEY")
-    candidate = fetch_candidate(
-        access_token,
+    if args.download:
+        access_token = os.environ.get("CBBD_API_KEY")
+        manifest_path = source_dir / "manifest.json"
+        manifest = read_json(manifest_path) if manifest_path.exists() else {}
+        current_bundle = (
+            isinstance(manifest, dict)
+            and manifest.get("format_version") == ARCHIVE_FORMAT_VERSION
+        )
+        if not access_token and not current_bundle:
+            raise SystemExit("Missing CBBD_API_KEY")
+        candidate = fetch_candidate(
+            access_token or "",
+            args.season,
+            args.max_retries,
+            source_dir,
+            args.release_version,
+        )
+        manifest = read_json(source_dir / "manifest.json")
+        print(
+            json.dumps(
+                {
+                    "source_dir": str(source_dir),
+                    "candidate_sha256": candidate_checksum(candidate),
+                    "counts": manifest["counts"],
+                },
+                indent=2,
+            )
+        )
+        print("DOWNLOAD COMPLETE: no database rows changed")
+        return
+
+    candidate = load_candidate_bundle(
+        source_dir,
         args.season,
-        args.max_retries,
+        args.release_version,
     )
     validation = validate_candidate(candidate)
     checksum = candidate_checksum(candidate)
-    print(json.dumps({"validation": validation, "checksum": checksum}, indent=2))
+    print(
+        json.dumps(
+            {
+                "source_dir": str(source_dir),
+                "validation": validation,
+                "checksum": checksum,
+            },
+            indent=2,
+        )
+    )
     if not args.apply:
         print("DRY RUN: no database rows changed")
         return
@@ -968,19 +1602,36 @@ def main() -> None:
     conn.autocommit = False
     run_id: int | None = None
     try:
-        ensure_known_schools(conn, candidate)
+        reference_schools = missing_reference_schools(conn, candidate)
+        if reference_schools:
+            validation["reference_schools_to_insert"] = [
+                {"team_id": team_id, "name": name}
+                for team_id, name in reference_schools
+            ]
+            print(
+                "Historical reference schools to insert: "
+                f"{validation['reference_schools_to_insert']}"
+            )
         commit = pipeline_commit(REPO_ROOT)
         run_id = begin_import_run(
             conn,
             dataset="ap_top25_vt_rosters_lineups",
             import_version=args.release_version,
             commit=commit,
-            source_uri=f"cbbd://rankings+rosters+games+lineups?season={args.season}",
+            source_uri=(
+                f"cbbd-bundle://ranked-rosters/{args.season}/"
+                f"{args.release_version}"
+            ),
             first_season=args.season,
             last_season=args.season,
-            metadata={"virginia_tech_team_id": 340},
+            metadata={
+                "virginia_tech_team_id": 340,
+                "source_dir": str(source_dir),
+                "candidate_sha256": checksum,
+            },
         )
         counts = {
+            "schools": len(reference_schools),
             "team_season_eligibility": len(candidate["eligible"]),
             "team_roster_memberships": validation["roster_players"],
             "player_seasons": len(candidate["player_seasons"]),
@@ -1003,6 +1654,7 @@ def main() -> None:
             args.season,
             run_id,
             counts,
+            reference_schools,
         )
         print(f"Published season {args.season} release {args.release_version}")
     except Exception as error:

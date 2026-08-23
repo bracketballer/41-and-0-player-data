@@ -6,6 +6,8 @@ large and may contain database-derived data.
 
 ```text
 data/raw/player_seasons/       CBBD player-season downloads
+data/raw/ranked_rosters/       resumable, release-specific CBBD source bundles
+data/exports/data-releases/    locally created immutable delta archives
 data/processed/core/           schools, processed players, and positions
 data/cache/torvik/              rate-limited Torvik source cache
 data/exports/shots/             compressed shot-event exports

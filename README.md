@@ -17,7 +17,8 @@ if they are not already installed.
 
 ```bash
 ./scripts/setup-local.sh
-# edit .env with database credentials and CBBD_API_KEY
+# If prompted, edit .env, start the local database, run Fastify migrations
+# through V34, and rerun the same setup command.
 ```
 
 The setup script creates `.venv`, installs the pinned dependencies and this
@@ -25,7 +26,12 @@ package in editable mode, creates `.env` from `.env.example` when needed, and
 adds any missing DigitalOcean Spaces settings to an existing `.env` without
 changing its database values. It always enforces private mode (`0600`) for
 `.env`; it never generates or retrieves secrets. Blank Spaces credentials are
-reported as a warning because Spaces is optional for local-only work.
+reported as a warning because Spaces is optional for local-only work. When a
+local database has been freshly migrated through V34 and read-only Spaces
+credentials are configured, setup downloads and verifies the newest complete
+development snapshot, restores it without replacing existing data, and then
+applies any newer checked-in data-release descriptors. Rerunning setup is safe;
+remote and already initialized databases are never restored automatically.
 
 ## Layout
 

@@ -8,6 +8,8 @@ from typing import Any, Iterable, Mapping
 
 VIRGINIA_TECH_TEAM_ID = 340
 FIRST_SUPPORTED_SEASON = 2024
+AP_POLL_TYPES = frozenset({"ap", "ap top 25"})
+MINIMUM_AP_TOP_25_TEAMS = 25
 
 POSITION_MAP = {
     "PG": ("PG",),
@@ -60,7 +62,10 @@ def build_eligible_teams(
     for row in rankings:
         if int(_value(row, "season") or season) != season:
             continue
-        if str(_value(row, "pollType", "poll_type") or "").lower() != "ap":
+        poll_type = str(
+            _value(row, "pollType", "poll_type") or ""
+        ).strip().casefold()
+        if poll_type not in AP_POLL_TYPES:
             continue
         ranking = _value(row, "ranking")
         team_id = _value(row, "teamId", "team_id")
@@ -104,6 +109,26 @@ def build_eligible_teams(
             )
         )
     return result
+
+
+def validate_ap_top25_coverage(
+    eligible: Iterable[EligibleTeam],
+    *,
+    minimum_teams: int = MINIMUM_AP_TOP_25_TEAMS,
+) -> dict[str, int]:
+    """Reject a ranking response that silently collapses to the VT fallback."""
+    rows = list(eligible)
+    ap_top25_teams = sum("ap_top_25" in row.reasons for row in rows)
+    if ap_top25_teams < minimum_teams:
+        raise ValueError(
+            "AP Top 25 eligibility failed: "
+            f"expected at least {minimum_teams} ranked teams, "
+            f"found {ap_top25_teams}"
+        )
+    return {
+        "ap_top25_teams": ap_top25_teams,
+        "eligible_teams": len(rows),
+    }
 
 
 def normalize_positions(raw_position: str | None) -> tuple[str, ...]:

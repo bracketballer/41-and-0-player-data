@@ -15,7 +15,15 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-import psycopg2
+try:
+    import psycopg2
+except ImportError:  # Archive-only helpers/tests do not need the DB driver.
+    class _MissingPsycopg:
+        @staticmethod
+        def connect(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("psycopg2 is required for snapshot database operations")
+
+    psycopg2 = _MissingPsycopg()  # type: ignore[assignment]
 
 from .database import connection_dsn
 SNAPSHOT_FORMAT_VERSION = 1
@@ -63,6 +71,24 @@ SENSITIVE_TABLES: tuple[str, ...] = (
     "published_lineups",
     "saved_labels",
 )
+
+# Flyway V28 installs these seven system labels as part of schema creation.
+# They are application data, not snapshot data, but a freshly migrated target
+# must retain them for the community-labels feature to work.
+MIGRATION_SEEDED_LABELS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("Poor floor spacing", "spacing"),
+        ("Five-out spacing", "spacing"),
+        ("No reliable primary and secondary ball handlers", "offense"),
+        ("Weak ball movement", "offense"),
+        ("Downhill shot creation", "offense"),
+        ("Switch-everything defense", "defense"),
+        ("Reliable in the clutch", "clutch"),
+    }
+)
+MIGRATION_SEEDED_TABLE_COUNTS: dict[str, int] = {
+    "lineup_labels": len(MIGRATION_SEEDED_LABELS),
+}
 
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TABLE_DATA_RE = re.compile(r"\bTABLE DATA public ([A-Za-z_][A-Za-z0-9_]*)\b")
@@ -636,6 +662,40 @@ def database_table_counts(conn: Any, tables: list[str]) -> dict[str, int]:
     return counts
 
 
+def validate_migration_seed_data(conn: Any) -> None:
+    """Require the exact V34 system-label shape in a restore target."""
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT title, category, is_seed, author_user_id
+            FROM lineup_labels
+            """
+        )
+        rows = cursor.fetchall()
+    identities = {
+        (str(title), str(category))
+        for title, category, is_seed, author_user_id in rows
+        if is_seed is True and author_user_id is None
+    }
+    if len(rows) != len(MIGRATION_SEEDED_LABELS) or identities != MIGRATION_SEEDED_LABELS:
+        raise RuntimeError(
+            "target database does not contain only the expected Flyway-seeded "
+            "lineup labels"
+        )
+
+
+def unexpected_target_table_counts(counts: dict[str, int]) -> dict[str, int]:
+    """Return target rows that make an initial snapshot restore unsafe."""
+
+    unexpected: dict[str, int] = {}
+    for table, count in counts.items():
+        expected = MIGRATION_SEEDED_TABLE_COUNTS.get(table, 0)
+        if count != expected:
+            unexpected[table] = count
+    return unexpected
+
+
 def validate_target_schema_and_empty(conn: Any, manifest: dict[str, Any]) -> None:
     source = manifest.get("source")
     if not isinstance(source, dict):
@@ -669,9 +729,13 @@ def validate_target_schema_and_empty(conn: Any, manifest: dict[str, Any]) -> Non
         )
     all_tables = database_public_table_names(conn)
     counts = database_table_counts(conn, all_tables)
-    nonempty = {table: count for table, count in counts.items() if count}
-    if nonempty:
-        raise RuntimeError(f"target database must be empty before restore: {nonempty}")
+    unexpected = unexpected_target_table_counts(counts)
+    if unexpected:
+        raise RuntimeError(
+            "target database must contain only Flyway seed data before restore: "
+            f"{unexpected}"
+        )
+    validate_migration_seed_data(conn)
 
 
 def restore_snapshot(
@@ -717,8 +781,13 @@ def restore_snapshot(
         if actual != {table: int(expected[table]) for table in SNAPSHOT_TABLES}:
             raise RuntimeError(f"restored table counts differ: {actual}")
         sensitive_counts = database_table_counts(conn, list(SENSITIVE_TABLES))
-        if any(sensitive_counts.values()):
-            raise RuntimeError(f"sensitive tables are not empty: {sensitive_counts}")
+        unexpected_sensitive = unexpected_target_table_counts(sensitive_counts)
+        if unexpected_sensitive:
+            raise RuntimeError(
+                "sensitive tables differ from migration seed data: "
+                f"{unexpected_sensitive}"
+            )
+        validate_migration_seed_data(conn)
         return actual
     finally:
         conn.close()

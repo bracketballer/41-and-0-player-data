@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .paths import ENV_FILE
 
@@ -38,3 +40,18 @@ def connection_dsn() -> str:
         f"host={host} port={port} dbname={dbname} user={user} "
         f"password={password or ''}"
     )
+
+
+def database_host(dsn: str) -> str:
+    """Return the normalized host from a PostgreSQL URL or keyword DSN."""
+
+    if "://" in dsn:
+        parsed = urlparse(dsn)
+        return (parsed.hostname or "").lower()
+    match = re.search(r"(?:^|\s)host=([^\s]+)", dsn)
+    return (match.group(1) if match else "localhost").strip("'\"").lower()
+
+
+def is_local_database(dsn: str) -> bool:
+    host = database_host(dsn)
+    return host in {"", "localhost", "127.0.0.1", "::1"} or host.startswith("/")
