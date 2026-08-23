@@ -22,6 +22,7 @@ import cbbd
 import psycopg2
 from cbbd.rest import ApiException
 from psycopg2.extras import Json, execute_values
+from pydantic import ValidationError
 
 from bracketballer_data.database import connection_dsn, load_env_file
 from bracketballer_data.import_audit import (
@@ -176,14 +177,24 @@ def fetch_candidate(
             game for game in games if str(game.get("status")) == "final"
         ]
         lineups: list[dict[str, Any]] = []
+        skipped_game_ids: list[int] = []
         for index, game in enumerate(final_games, start=1):
-            rows = call_with_retries(
-                lambda game_id=int(game["id"]): lineups_api.get_lineup_stats_by_game(
-                    game_id=game_id,
-                    _request_timeout=(10, 120),
-                ),
-                retries,
-            )
+            try:
+                rows = call_with_retries(
+                    lambda game_id=int(game["id"]): lineups_api.get_lineup_stats_by_game(
+                        game_id=game_id,
+                        _request_timeout=(10, 120),
+                    ),
+                    retries,
+                )
+            except ValidationError:
+                # CBBD occasionally returns a lineup segment with a null
+                # defenseRating/netRating (very-low-sample lineups), which the
+                # cbbd client's typed model rejects outright. That crashes
+                # deserialization for the whole game's lineup list, not just
+                # the offending row, so the only unit we can skip is the game.
+                skipped_game_ids.append(int(game["id"]))
+                continue
             for row in rows or []:
                 item = payload(row)
                 if int(item["teamId"]) in eligible_ids:
@@ -192,6 +203,11 @@ def fetch_candidate(
                     lineups.append(item)
             if index % 50 == 0:
                 print(f"lineups: fetched {index}/{len(final_games)} final games")
+        if skipped_game_ids:
+            print(
+                f"lineups: skipped {len(skipped_game_ids)} game(s) with unparseable "
+                f"lineup ratings: {skipped_game_ids}"
+            )
 
         opponent_ids: set[int] = set()
         for game in games:
