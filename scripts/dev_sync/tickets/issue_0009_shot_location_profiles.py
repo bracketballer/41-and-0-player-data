@@ -214,6 +214,8 @@ def apply(
             )
         elif existing[0] != configuration:
             raise ValueError("issue #9 model configuration conflicts with the database")
+        elif existing[1]:
+            raise ValueError("issue #9 cannot modify an active model version")
 
         values = [
             (
@@ -258,4 +260,3 @@ def apply(
             "model_version": model_version,
         },
     }
-
