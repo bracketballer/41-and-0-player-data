@@ -56,3 +56,6 @@ inactive model candidate in Fastify V36's
 the downstream defensive, usage, matchup, and projection jobs have completed.
 During an active season, rerun the computation nightly after shot ingestion;
 use a new immutable version for each published refresh.
+
+The downstream defensive-five concession profile is documented in
+`docs/DEFENSE_LINEUP_CONCESSION.md`.
