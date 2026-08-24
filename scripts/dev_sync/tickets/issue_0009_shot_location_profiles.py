@@ -17,6 +17,20 @@ METADATA_FILE = "metadata.json"
 ZONES = ("rim", "short_mid", "long_mid", "corner_three", "above_break_three")
 
 
+def _configuration_contains(actual: Any, expected: Any) -> bool:
+    """Allow inactive downstream tickets to extend the shared configuration."""
+
+    if isinstance(expected, dict):
+        return (
+            isinstance(actual, dict)
+            and all(
+                key in actual and _configuration_contains(actual[key], value)
+                for key, value in expected.items()
+            )
+        )
+    return actual == expected
+
+
 def _read_metadata(root: Path) -> dict[str, Any]:
     try:
         value = json.loads((root / METADATA_FILE).read_text(encoding="utf-8"))
@@ -212,7 +226,7 @@ def apply(
                 """,
                 (model_version, Json(configuration)),
             )
-        elif existing[0] != configuration:
+        elif not _configuration_contains(existing[0], configuration):
             raise ValueError("issue #9 model configuration conflicts with the database")
         elif existing[1]:
             raise ValueError("issue #9 cannot modify an active model version")
