@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.dev_sync import sync_after_git_update as sync
+from scripts.dev_sync.ticket_runner import read_ticket_descriptor
 
 
 class DevelopmentSyncTests(unittest.TestCase):
@@ -22,6 +23,23 @@ class DevelopmentSyncTests(unittest.TestCase):
         self.assertEqual(dependency["ref"], "develop")
         self.assertEqual(len(dependency["commit"]), 40)
         self.assertEqual(dependency["flyway_checksums"]["35"], 1162551216)
+
+    def test_issue_0010_descriptor_pins_v36_release_order_and_sources(self):
+        dependencies = sync._schema_dependencies()
+        dependency = next(
+            item
+            for item in dependencies
+            if item["descriptor"] == "issue-0010-0002-issue-0010-defense-concession-2026.1.json"
+        )
+        self.assertEqual(dependency["flyway_version"], "36")
+        ticket = read_ticket_descriptor(
+            Path("releases/tickets/issue-0010-0002-issue-0010-defense-concession-2026.1.json")
+        )
+        self.assertEqual(ticket["release_sequence"], 2)
+        self.assertEqual(
+            dependency["commit"],
+            "08d37935d76757338db86624095fef4421f12b12",
+        )
 
     def test_flyway_environment_supports_url_and_keyword_dsn(self):
         url = sync._flyway_environment(
