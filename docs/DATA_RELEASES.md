@@ -46,14 +46,22 @@ python -m scripts.ingest.ingest_cbbd_shots_bulk \
   --first 2020 \
   --last 2026 \
   --release-version cbbd-shots-2026-07-23.1 \
-  --refresh
+  --download
+
+python -m scripts.ingest.ingest_cbbd_shots_bulk \
+  --first 2020 \
+  --last 2026 \
+  --release-version cbbd-shots-2026-07-23.1 \
+  --apply
 ```
 
-Each season gets a separate audit row. The job stages all dates, creates a
-deterministic checksum, verifies IDs/season/player references and row-count
-bounds, then replaces that season and finishes the audit row in one publish
-transaction. A fetch, validation, or publication failure leaves the prior
-season visible and records a failed run.
+The first command downloads resumable, checksummed date responses without
+touching PostgreSQL. The second validates the local bundle and reconciles only
+pending eligible player-seasons. The selector preserves the existing fantasy
+population and adds active roster players on eligible team-seasons with at
+least 100 minutes. Each season gets a separate audit row; a failed fetch,
+validation, or publication leaves unrelated shot rows visible and records a
+failed run.
 
 ## Shooting model
 

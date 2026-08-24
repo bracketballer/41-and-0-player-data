@@ -35,6 +35,19 @@ _COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _compact_validation_value(value: Any) -> Any:
+    """Keep audit validation JSON bounded; prepared artifacts may be huge."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        if len(value) > 100:
+            return {"count": len(value), "keys": [str(key) for key in list(value)[:20]]}
+        return {str(key): _compact_validation_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return {"count": len(value)}
+    return str(value)
+
+
 def read_ticket_descriptor(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -74,6 +87,17 @@ def read_ticket_descriptor(path: Path) -> dict[str, Any]:
     for key in ("archive_sha256", "checksum_sha256", "manifest_sha256"):
         if not isinstance(expected.get(key), str) or not _SHA_RE.fullmatch(expected[key].lower()):
             raise ValueError(f"ticket expected {key} is invalid: {path}")
+    row_counts = expected.get("row_counts")
+    if row_counts is not None:
+        if not isinstance(row_counts, dict) or any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+            for name, count in row_counts.items()
+        ):
+            raise ValueError(f"ticket expected row counts are invalid: {path}")
     required = value.get("required_flyway_checksums")
     dependency = value.get("schema_dependency")
     if not isinstance(required, dict) or not required:
@@ -144,7 +168,45 @@ def _audit_state(conn: Any, descriptor: dict[str, Any], source_sha256: str) -> s
         return "published"
     if status == "published":
         raise RuntimeError("ticket release audit checksum conflict")
+    # A failed handler leaves its audit row visible, but handlers are required
+    # to be idempotent so the same immutable artifact can be retried safely.
+    # The runner resumes that failed audit row after preserving its failure
+    # details in metadata; the schema intentionally keeps one row per release.
+    if status == "failed":
+        if digest not in (None, source_sha256):
+            raise RuntimeError("ticket release audit checksum conflict")
+        return "failed"
     raise RuntimeError(f"ticket release audit row is {status}; use a new release version")
+
+
+def _resume_failed_import_run(conn: Any, descriptor: dict[str, Any]) -> int:
+    """Reset a failed release row for an idempotent retry without losing history."""
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE data_import_runs
+            SET status = 'running', source_sha256 = NULL,
+                staged_row_counts = '{}'::jsonb,
+                published_row_counts = '{}'::jsonb,
+                validation_results = '{}'::jsonb,
+                validated_at = NULL, published_at = NULL, finished_at = NULL,
+                metadata = metadata || jsonb_build_object(
+                    'previous_failure', jsonb_build_object(
+                        'finished_at', finished_at,
+                        'error_message', error_message
+                    )
+                ),
+                error_message = NULL, started_at = now()
+            WHERE dataset = %s AND import_version = %s AND status = 'failed'
+            RETURNING id
+            """,
+            (descriptor["dataset"], descriptor["release_version"]),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        raise RuntimeError("failed ticket release row disappeared before retry")
+    conn.commit()
+    return int(row[0])
 
 
 def _publish_audit(conn: Any, run_id: int, source_sha256: str, row_counts: dict[str, Any], validation: dict[str, Any]) -> None:
@@ -209,23 +271,29 @@ def apply_ticket_descriptor(
             conn.rollback()
             if state == "published":
                 return "skipped: already published with expected checksum"
-            run_id = begin_import_run(
-                conn,
-                dataset=descriptor["dataset"],
-                import_version=descriptor["release_version"],
-                commit=descriptor["pipeline_commit"],
-                source_uri=str(descriptor["objects"]["archive"]),
-                first_season=descriptor["first_season"],
-                last_season=descriptor["last_season"],
-                metadata={"ticket_number": descriptor["ticket_number"], "release_sequence": descriptor["release_sequence"]},
-            )
+            if state == "failed":
+                run_id = _resume_failed_import_run(conn, descriptor)
+            else:
+                run_id = begin_import_run(
+                    conn,
+                    dataset=descriptor["dataset"],
+                    import_version=descriptor["release_version"],
+                    commit=descriptor["pipeline_commit"],
+                    source_uri=str(descriptor["objects"]["archive"]),
+                    first_season=descriptor["first_season"],
+                    last_season=descriptor["last_season"],
+                    metadata={"ticket_number": descriptor["ticket_number"], "release_sequence": descriptor["release_sequence"]},
+                )
             result = handler.apply(conn, extracted, descriptor, prepared)
             if result is None:
                 result = {}
             if not isinstance(result, dict):
                 raise TypeError("ticket apply must return a dictionary")
             row_counts = result.get("row_counts", {})
-            validation = {"prepared": prepared, **result.get("validation", {})}
+            validation = {
+                "prepared": _compact_validation_value(prepared),
+                **result.get("validation", {}),
+            }
             _publish_audit(conn, run_id, source_sha256, row_counts, validation)
             conn.commit()
             return "published"

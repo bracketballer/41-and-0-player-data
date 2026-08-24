@@ -13,6 +13,7 @@ from bracketballer_data.ticket_release import (
     validate_handler,
 )
 from scripts.dev_sync.ticket_runner import (
+    _compact_validation_value,
     read_ticket_descriptor,
     ticket_descriptor_order,
     ticket_descriptor_paths,
@@ -57,6 +58,14 @@ def descriptor(path: Path, *, ticket: int = 7, sequence: int = 1, flyway: str = 
 
 
 class TicketReleaseTests(unittest.TestCase):
+    def test_prepared_validation_is_compacted_before_audit(self):
+        compacted = _compact_validation_value(
+            {"events": [{"id": index} for index in range(1000)], "counts": {"rows": 3}}
+        )
+        self.assertEqual(compacted["events"], {"count": 1000})
+        self.assertEqual(compacted["counts"], {"rows": 3})
+
+
     def test_handler_name_must_match_ticket(self):
         self.assertEqual(
             validate_handler("scripts.dev_sync.tickets.issue_0007_example", 7),

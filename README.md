@@ -64,7 +64,8 @@ Run commands from the repository root with the virtual-environment interpreter:
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m scripts.publish.process_players
-.venv/bin/python -m scripts.ingest.ingest_cbbd_shots_bulk --first 2020 --last 2026
+.venv/bin/python -m scripts.ingest.ingest_cbbd_shots_bulk --first 2024 --last 2026 --release-version issue-0006-shots-2026.1 --download
+.venv/bin/python -m scripts.ingest.ingest_cbbd_shots_bulk --first 2024 --last 2026 --release-version issue-0006-shots-2026.1 --apply
 .venv/bin/python -m scripts.compute.compute_shooting_ability_profiles --first 2020 --last 2026 --version shooting-v2
 ```
 

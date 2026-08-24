@@ -12,5 +12,6 @@ def apply(conn, root: Path, descriptor: dict, prepared: dict) -> dict:
 ```
 
 `apply` receives a transaction-owned PostgreSQL connection and must not commit
-or change the active Fastify checkout. Use a new release version for a retry;
-published audit rows are immutable.
+or change the active Fastify checkout. A failed release may be retried with the
+same immutable artifact; the runner resumes its failed audit row and preserves
+the prior error in metadata. Published audit rows are immutable.

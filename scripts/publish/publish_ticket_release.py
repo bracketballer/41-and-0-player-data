@@ -33,10 +33,27 @@ def _checksums(values: list[str]) -> dict[str, int | str]:
     return result
 
 
+def _row_counts(values: list[str]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--expected-row-count must be NAME=COUNT")
+        name, count = value.split("=", 1)
+        if not name or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name):
+            raise ValueError("--expected-row-count name is invalid")
+        if not re.fullmatch(r"[0-9]+", count):
+            raise ValueError("--expected-row-count count must be non-negative")
+        result[name] = int(count)
+    if not result:
+        raise ValueError("at least one --expected-row-count is required")
+    return result
+
+
 def create(args: argparse.Namespace) -> dict:
     validate_handler(args.handler, args.ticket)
     validate_release_version(args.release_version)
     flyway_checksums = _checksums(args.flyway_checksum)
+    row_counts = _row_counts(args.expected_row_count)
     if args.flyway_version not in flyway_checksums:
         raise ValueError("--flyway-version must have a matching --flyway-checksum")
     archive, checksum, manifest, publication = create_ticket_archive(
@@ -66,6 +83,7 @@ def create(args: argparse.Namespace) -> dict:
             "archive_sha256": sha256_file(archive),
             "checksum_sha256": sha256_file(checksum),
             "manifest_sha256": sha256_file(manifest),
+            "row_counts": row_counts,
         },
         "required_flyway_checksums": flyway_checksums,
         "schema_dependency": {
@@ -113,6 +131,7 @@ def main() -> None:
     create_parser.add_argument("--schema-commit", required=True)
     create_parser.add_argument("--flyway-version", required=True)
     create_parser.add_argument("--flyway-checksum", action="append", default=[])
+    create_parser.add_argument("--expected-row-count", action="append", default=[])
     create_parser.add_argument("--object-root", default="data-releases/tickets")
 
     upload_parser = subparsers.add_parser("upload")
