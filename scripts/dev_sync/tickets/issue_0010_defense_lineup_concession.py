@@ -290,16 +290,21 @@ def _verify_lineup_source(conn: Any, prepared: dict[str, Any], first: int, last:
                   ON eligibility.team_id = lineup.team_id
                  AND eligibility.season = lineup.season
                 WHERE lineup.season BETWEEN %s AND %s
+            ), lineup_identity AS (
+                SELECT lineup_id,
+                       array_agg(DISTINCT player_id ORDER BY player_id) AS player_ids
+                FROM team_game_lineup_players
+                GROUP BY lineup_id
             )
             SELECT source.season, source.team_id, source.lineup_hash,
                    SUM(source.total_seconds),
                    SUM(COALESCE((source.opponent_stats->>'possessions')::double precision, 0)),
                    SUM(COALESCE((source.opponent_stats->'fieldGoals'->>'attempted')::double precision, 0)),
-                   array_agg(DISTINCT lineup_player.player_id ORDER BY lineup_player.player_id)
+                   player_ids.player_ids
             FROM lineup_source source
-            JOIN team_game_lineup_players lineup_player
-              ON lineup_player.lineup_id = source.id
-            GROUP BY source.season, source.team_id, source.lineup_hash
+            JOIN lineup_identity player_ids
+              ON player_ids.lineup_id = source.id
+            GROUP BY source.season, source.team_id, source.lineup_hash, player_ids.player_ids
             """,
             (first, last),
         )

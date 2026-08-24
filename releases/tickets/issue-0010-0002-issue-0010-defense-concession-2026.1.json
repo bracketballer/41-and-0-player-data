@@ -1,0 +1,56 @@
+{
+  "dataset": "defense_lineup_zone_concession",
+  "expected": {
+    "archive_bytes": 62684,
+    "archive_sha256": "2cae5728d250376fb7fd32fb73f6efa87f16fe36784a32ed2acf995f7ebb5f00",
+    "checksum_sha256": "6d39536afbcb3d5cfc3716f6f1e9b7f55ff1a5b492535c8b2fa32f48685cdd49",
+    "manifest_sha256": "60bf43c09cebaab9716ee0c307fafe961bd79c8614abbb0ba73fc811f5c61914",
+    "row_counts": {
+      "defense_lineup_zone_concession": 2300,
+      "profiles_with_five_zones": 460,
+      "realistic_units": 460,
+      "teams": 44
+    }
+  },
+  "first_season": 2026,
+  "format_version": 1,
+  "handler": "scripts.dev_sync.tickets.issue_0010_defense_lineup_concession",
+  "last_season": 2026,
+  "objects": {
+    "archive": "data-releases/tickets/defense_lineup_zone_concession/0010/issue-0010-defense-concession-2026.1/issue-0010-issue-0010-defense-concession-2026.1.tar.gz",
+    "checksum": "data-releases/tickets/defense_lineup_zone_concession/0010/issue-0010-defense-concession-2026.1/issue-0010-issue-0010-defense-concession-2026.1.tar.gz.sha256",
+    "manifest": "data-releases/tickets/defense_lineup_zone_concession/0010/issue-0010-defense-concession-2026.1/issue-0010-issue-0010-defense-concession-2026.1.tar.json"
+  },
+  "pipeline_commit": "cf09a67ecc66733068ab9bb18d0171ec5d8c09c4",
+  "release_sequence": 2,
+  "release_version": "issue-0010-defense-concession-2026.1",
+  "required_flyway_checksums": {
+    "35": 1162551216,
+    "36": 211131866
+  },
+  "schema_dependency": {
+    "commit": "08d37935d76757338db86624095fef4421f12b12",
+    "flyway_checksums": {
+      "35": 1162551216,
+      "36": 211131866
+    },
+    "flyway_version": "36",
+    "ref": "develop",
+    "repository": "bracketballer/fastify"
+  },
+  "source_dependencies": [
+    {
+      "dataset": "eligible_team_shot_events",
+      "import_version": "issue-0006-shots-2026.1"
+    },
+    {
+      "dataset": "ap_top25_vt_rosters_lineups",
+      "import_version": "ranked-rosters-2026-08-23.2"
+    },
+    {
+      "dataset": "shot_location_profiles",
+      "import_version": "issue-0009-shot-location-2026.1"
+    }
+  ],
+  "ticket_number": 10
+}
