@@ -112,17 +112,17 @@ def _load_offensive_players(conn: Any, season: int, team_id: int, model_version:
         cursor.execute(
             """
             WITH eligible AS (
-                SELECT player_id,
+                SELECT id AS player_id,
                        40.0 * SUM(COALESCE(assists, 0)) / NULLIF(SUM(minutes), 0) AS assists_per40,
                        CASE WHEN SUM(COALESCE(turnovers, 0)) > 0
                             THEN SUM(COALESCE(assists, 0))::float8 / SUM(turnovers)
                             ELSE SUM(COALESCE(assists, 0))::float8 END AS assist_turnover_ratio,
                        SUM(COALESCE(usage, 0) * COALESCE(minutes, 0))
                          / NULLIF(SUM(minutes), 0) AS usage
-                FROM player_seasons
+                FROM players
                 WHERE season = %s AND source_active
                   AND porpag > 0 AND dporpag > 0
-                GROUP BY player_id
+                GROUP BY id
                 HAVING SUM(COALESCE(games, 0)) > 18
             ), ranked AS (
                 SELECT player_id,
