@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from .shot_zones import FIELD_GOAL_ZONES, ShotZone
+from .shooting_ability import PRIOR_ATTEMPTS as ACCURACY_PRIOR_ATTEMPTS
 
 
 MODEL_VERSION = "shot-location-v1"
 MIN_ROTATION_MINUTES = 100
 SHARE_PRIOR_ATTEMPTS = 0.5
-ACCURACY_PRIOR_ATTEMPTS = 50.0
 POINT_VALUES: Mapping[ShotZone, float] = {
     "rim": 2.0,
     "short_mid": 2.0,
