@@ -281,19 +281,25 @@ def _verify_lineup_source(conn: Any, prepared: dict[str, Any], first: int, last:
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            SELECT lineup.season, lineup.team_id, lineup.lineup_hash,
-                   SUM(lineup.total_seconds),
-                   SUM(COALESCE((lineup.opponent_stats->>'possessions')::double precision, 0)),
-                   SUM(COALESCE((lineup.opponent_stats->'fieldGoals'->>'attempted')::double precision, 0)),
+            WITH lineup_source AS (
+                SELECT lineup.id, lineup.season, lineup.team_id,
+                       lineup.lineup_hash, lineup.total_seconds,
+                       lineup.opponent_stats
+                FROM team_game_lineups lineup
+                JOIN team_season_eligibility eligibility
+                  ON eligibility.team_id = lineup.team_id
+                 AND eligibility.season = lineup.season
+                WHERE lineup.season BETWEEN %s AND %s
+            )
+            SELECT source.season, source.team_id, source.lineup_hash,
+                   SUM(source.total_seconds),
+                   SUM(COALESCE((source.opponent_stats->>'possessions')::double precision, 0)),
+                   SUM(COALESCE((source.opponent_stats->'fieldGoals'->>'attempted')::double precision, 0)),
                    array_agg(DISTINCT lineup_player.player_id ORDER BY lineup_player.player_id)
-            FROM team_game_lineups lineup
+            FROM lineup_source source
             JOIN team_game_lineup_players lineup_player
-              ON lineup_player.lineup_id = lineup.id
-            JOIN team_season_eligibility eligibility
-              ON eligibility.team_id = lineup.team_id
-             AND eligibility.season = lineup.season
-            WHERE lineup.season BETWEEN %s AND %s
-            GROUP BY lineup.season, lineup.team_id, lineup.lineup_hash
+              ON lineup_player.lineup_id = source.id
+            GROUP BY source.season, source.team_id, source.lineup_hash
             """,
             (first, last),
         )
