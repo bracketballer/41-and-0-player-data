@@ -1,0 +1,42 @@
+{
+  "dataset": "eligible_team_shot_events",
+  "expected": {
+    "archive_bytes": 28633311,
+    "archive_sha256": "0754742140a5dc14e41972e03542a6ce77f63bdbd8be15233502d82625b4bff1",
+    "checksum_sha256": "645861e54f42d46b888c1683941deff18a1f9a88203ec018e1b6cbd44fe0e806",
+    "manifest_sha256": "bc56730acde34ca0b89feaed210936c2588592c07d251f377579ef7c759b98e5",
+    "row_counts": {
+      "event_rows": 251986,
+      "expanded_player_seasons": 1144,
+      "no_data_player_seasons": 0,
+      "success_player_seasons": 1144
+    }
+  },
+  "first_season": 2024,
+  "format_version": 1,
+  "handler": "scripts.dev_sync.tickets.issue_0006_expand_shot_corpus",
+  "last_season": 2026,
+  "objects": {
+    "archive": "data-releases/tickets/eligible_team_shot_events/0006/issue-0006-shots-2026.1/issue-0006-issue-0006-shots-2026.1.tar.gz",
+    "checksum": "data-releases/tickets/eligible_team_shot_events/0006/issue-0006-shots-2026.1/issue-0006-issue-0006-shots-2026.1.tar.gz.sha256",
+    "manifest": "data-releases/tickets/eligible_team_shot_events/0006/issue-0006-shots-2026.1/issue-0006-issue-0006-shots-2026.1.tar.json"
+  },
+  "pipeline_commit": "cfcf4708b1a17ad9124c28a6028053555d1ac7e0",
+  "release_sequence": 1,
+  "release_version": "issue-0006-shots-2026.1",
+  "required_flyway_checksums": {
+    "34": -1973679461,
+    "35": 1162551216
+  },
+  "schema_dependency": {
+    "commit": "7e029dd538b16569f09bd5ac6d189ba45e2968d9",
+    "flyway_checksums": {
+      "34": -1973679461,
+      "35": 1162551216
+    },
+    "flyway_version": "35",
+    "ref": "develop",
+    "repository": "bracketballer/fastify"
+  },
+  "ticket_number": 6
+}
