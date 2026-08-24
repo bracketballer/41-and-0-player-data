@@ -187,18 +187,23 @@ python -m scripts.apply_pending_data_releases
 
 Descriptors that depend on schema changes also contain a
 `schema_dependency` with the Fastify repository, a stable ref, the exact
-Fastify commit, and the required Flyway checksums. The post-merge/post-rewrite
-and post-checkout hooks fetch that commit into a temporary detached worktree,
-run the Fastify-owned Flyway image, verify the resulting schema history, and
-only then apply the data release. The active `../fastify` checkout is never
-switched, stashed, cleaned, or pulled. Set `FASTIFY_REPO_PATH` when the sibling
-repository is elsewhere.
+Fastify commit, and the required Flyway checksums. Ticketed descriptors live
+under `releases/tickets/`, name a handler under
+`scripts/dev_sync/tickets/issue_<ticket>_<slug>.py`, and carry an explicit
+release sequence. The post-merge/post-rewrite and post-checkout hooks fetch
+each pinned commit into a temporary detached worktree, run the Fastify-owned
+Flyway image, verify the resulting schema history, and only then download and
+apply the data release. Ticketed releases are ordered by Flyway version and
+release sequence; ticket numbers are traceability metadata. The active
+`../fastify` checkout is never switched, stashed, cleaned, or pulled. Set
+`FASTIFY_REPO_PATH` when the sibling repository is elsewhere.
 
 Hooks require a configured `.venv`, a local/loopback database, and Docker when
-a schema dependency is present. Spaces credentials are required only for the
-artifact phase; schema migrations can still be applied when Spaces is not
-configured. Remote targets are always skipped by hooks and require the
-explicit manual `--allow-remote` data-release command. Corrupt artifacts,
+a schema dependency is present. Already-published matching releases are
+skipped before network access. Pending ticketed releases require read-only
+Spaces credentials; legacy releases retain their historical safe skip when
+Spaces is not configured. Remote targets are always skipped by hooks and
+require the explicit manual `--allow-remote` data-release command. Corrupt artifacts,
 missing or mismatched Fastify commits, Flyway checksum mismatches, missing
 eligible canonical schools, and failed audited applications stop the hook
 visibly. A lock avoids concurrent applications, while an already-published

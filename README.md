@@ -43,9 +43,11 @@ restored automatically.
 | `src/bracketballer_data` | Reusable database, matching, release, and model code |
 | `scripts/ingest` | External API ingestion and reconciliation jobs |
 | `scripts/compute` | Shooting and defensive computation jobs |
+| `scripts/dev_sync/tickets` | Ticket-numbered schema-plus-data release handlers |
 | `scripts/publish` | Core-data preparation and audited publication |
 | `scripts/dev_sync` | Schema-aware local post-Git database synchronization |
 | `data` | Ignored raw inputs, caches, exports, and review reports |
+| `releases/tickets` | Checked-in immutable descriptors for local ticketed releases |
 | `sql/bootstrap` | Destructive local-only data bootstrap |
 | `sql/review` | Manual validation and write-back SQL |
 | `tests` | Unit tests for pure pipeline components |

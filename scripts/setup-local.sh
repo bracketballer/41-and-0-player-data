@@ -30,7 +30,7 @@ fi
 "${PYTHON_BIN}" "${SCRIPT_DIR}/sync_env_file.py" \
 	--env-file "${REPO_ROOT}/.env" \
 	--example-file "${REPO_ROOT}/.env.example"
-echo "Update database, CBBD, and optional Spaces credentials before running jobs."
+echo "Update database and CBBD credentials; read-only Spaces credentials are required when pending ticketed releases must be synchronized."
 
 git config core.hooksPath .githooks
 

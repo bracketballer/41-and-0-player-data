@@ -32,6 +32,11 @@ from scripts.apply_pending_data_releases import (
     descriptor_paths,
     read_descriptor,
 )
+from scripts.dev_sync.ticket_runner import (
+    apply_pending_ticket_releases,
+    read_ticket_descriptor,
+    ticket_descriptor_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FASTIFY_REPO = REPO_ROOT.parent / "fastify"
@@ -103,7 +108,18 @@ def _schema_dependencies_from_paths(paths: Sequence[Path]) -> list[dict[str, Any
 
 
 def _schema_dependencies() -> list[dict[str, Any]]:
-    return _schema_dependencies_from_paths(descriptor_paths())
+    dependencies = _schema_dependencies_from_paths(descriptor_paths())
+    for path in ticket_descriptor_paths(REPO_ROOT / "releases" / "tickets"):
+        descriptor = read_ticket_descriptor(path)
+        dependency = descriptor.get("schema_dependency")
+        if dependency is not None:
+            dependencies.append(
+                {
+                    "descriptor": path.name,
+                    **dependency,
+                }
+            )
+    return dependencies
 
 
 def _fastify_path() -> Path:
@@ -357,16 +373,26 @@ def synchronize(*, runner: Any = subprocess.run) -> str:
             f"skipped: database host {database_host(dsn)!r} is remote; "
             "automatic development sync is local-only"
         )
-    if not descriptor_paths():
+    legacy_paths = descriptor_paths()
+    ticket_paths = ticket_descriptor_paths(REPO_ROOT / "releases" / "tickets")
+    if not legacy_paths and not ticket_paths:
         return "no checked-in data releases found"
     dependencies = _schema_dependencies()
     with _sync_lock() as acquired:
         if not acquired:
             return "skipped: another development sync is active"
         synchronize_schema(dsn, dependencies, runner=runner)
-        if not _spaces_configured():
-            return "schema synchronized; skipped data releases because Spaces credentials are not configured"
-        results = apply_pending(dsn=dsn)
+        results: list[str] = []
+        if legacy_paths:
+            if _spaces_configured():
+                results.extend(apply_pending(dsn=dsn))
+            else:
+                results.append("skipped legacy data releases because Spaces credentials are not configured")
+        if ticket_paths:
+            results.extend(apply_pending_ticket_releases(
+                releases_dir=REPO_ROOT / "releases" / "tickets",
+                dsn=dsn,
+            ))
     return "; ".join(results) if results else "no checked-in data releases found"
 
 
