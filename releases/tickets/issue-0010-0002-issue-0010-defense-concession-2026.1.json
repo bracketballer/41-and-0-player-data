@@ -21,7 +21,7 @@
     "checksum": "data-releases/tickets/defense_lineup_zone_concession/0010/issue-0010-defense-concession-2026.1/issue-0010-issue-0010-defense-concession-2026.1.tar.gz.sha256",
     "manifest": "data-releases/tickets/defense_lineup_zone_concession/0010/issue-0010-defense-concession-2026.1/issue-0010-issue-0010-defense-concession-2026.1.tar.json"
   },
-  "pipeline_commit": "cf09a67ecc66733068ab9bb18d0171ec5d8c09c4",
+  "pipeline_commit": "5f5b9d025c59ad59f2a095f7f22d04861ba36255",
   "release_sequence": 2,
   "release_version": "issue-0010-defense-concession-2026.1",
   "required_flyway_checksums": {
