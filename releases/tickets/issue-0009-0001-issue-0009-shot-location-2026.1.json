@@ -1,0 +1,41 @@
+{
+  "dataset": "shot_location_profiles",
+  "expected": {
+    "archive_bytes": 229161,
+    "archive_sha256": "1113091d079a0366e61788d3ec6c69697a04338a9ffaf8dd73a22f355c166fe8",
+    "checksum_sha256": "34fb9089af6d8f40c61a904903e6c357e7285974d5c00539dd424552381e1292",
+    "manifest_sha256": "94b5f67168f5455392b261b7cacdc1be11b58d36e1366d01daea00b3447e4b1a",
+    "row_counts": {
+      "eligible_player_seasons": 1487,
+      "player_shot_location_profiles": 7435,
+      "profiles_with_five_zones": 1487
+    }
+  },
+  "first_season": 2024,
+  "format_version": 1,
+  "handler": "scripts.dev_sync.tickets.issue_0009_shot_location_profiles",
+  "last_season": 2026,
+  "objects": {
+    "archive": "data-releases/tickets/shot_location_profiles/0009/issue-0009-shot-location-2026.1/issue-0009-issue-0009-shot-location-2026.1.tar.gz",
+    "checksum": "data-releases/tickets/shot_location_profiles/0009/issue-0009-shot-location-2026.1/issue-0009-issue-0009-shot-location-2026.1.tar.gz.sha256",
+    "manifest": "data-releases/tickets/shot_location_profiles/0009/issue-0009-shot-location-2026.1/issue-0009-issue-0009-shot-location-2026.1.tar.json"
+  },
+  "pipeline_commit": "601739eecaa7fe2f8fd470e3c8cd1a2512df0fef",
+  "release_sequence": 1,
+  "release_version": "issue-0009-shot-location-2026.1",
+  "required_flyway_checksums": {
+    "35": 1162551216,
+    "36": 211131866
+  },
+  "schema_dependency": {
+    "commit": "08d37935d76757338db86624095fef4421f12b12",
+    "flyway_checksums": {
+      "35": 1162551216,
+      "36": 211131866
+    },
+    "flyway_version": "36",
+    "ref": "develop",
+    "repository": "bracketballer/fastify"
+  },
+  "ticket_number": 9
+}
