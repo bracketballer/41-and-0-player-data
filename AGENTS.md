@@ -39,3 +39,14 @@ published releases, and refuse remote targets. Automatic downloads use
 read-only Spaces credentials; use the explicit manual command for staging or
 production. Ticket numbers identify ownership; required Flyway version and
 release sequence determine execution order.
+
+# GitHub issue context
+
+When a task includes a GitHub issue URL or number, retrieve the private issue
+with the authenticated GitHub CLI, not with direct HTTP/REST browsing. Derive
+the repository from the supplied URL (or the current remote) and use
+`gh issue view` with the title, body, state, labels, assignees, and comments
+requested as JSON. Follow linked issues with additional `gh issue view`
+commands in their owning repositories. If the CLI is unavailable or the
+authenticated lookup fails, report that failure instead of silently switching
+to an unauthenticated web request.
