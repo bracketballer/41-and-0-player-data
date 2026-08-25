@@ -9,13 +9,18 @@ Fastify checkout is never switched, stashed, cleaned, or pulled.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import os
 import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -339,15 +344,35 @@ def synchronize_schema(
 def _sync_lock(path: Path = LOCK_PATH) -> Iterator[bool]:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        if sys.platform == "win32":
+            # msvcrt locks a byte range rather than the whole file, so the
+            # locked region must exist first. Check size via seek rather than
+            # read: reading a byte another handle already holds locked raises
+            # PermissionError instead of signaling contention.
+            if handle.seek(0, os.SEEK_END) == 0:
+                handle.write("\0")
+                handle.flush()
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _spaces_configured() -> bool:

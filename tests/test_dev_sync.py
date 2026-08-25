@@ -112,6 +112,16 @@ class DevelopmentSyncTests(unittest.TestCase):
                 sync.synchronize_schema("postgresql://postgres:test@localhost/db", [dependency])
         self.assertEqual(calls, ["migrate", "verify"])
 
+    def test_sync_lock_blocks_concurrent_acquisition_and_releases_after_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "lock"
+            with sync._sync_lock(lock_path) as first_acquired:
+                self.assertTrue(first_acquired)
+                with sync._sync_lock(lock_path) as second_acquired:
+                    self.assertFalse(second_acquired)
+            with sync._sync_lock(lock_path) as reacquired:
+                self.assertTrue(reacquired)
+
     def test_descriptor_rejects_non_hex_schema_commit(self):
         descriptor_path = Path("releases/ranked-rosters-2026-08-23.2.json")
         descriptor = json.loads(descriptor_path.read_text())
