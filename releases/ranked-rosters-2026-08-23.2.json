@@ -24,7 +24,7 @@
   "schema_dependency": {
     "repository": "bracketballer/fastify",
     "ref": "develop",
-    "commit": "7e029dd538b16569f09bd5ac6d189ba45e2968d9",
+    "commit": "08d37935d76757338db86624095fef4421f12b12",
     "flyway_version": "35",
     "flyway_checksums": {
       "34": -1973679461,
