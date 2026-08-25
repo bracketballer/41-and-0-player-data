@@ -50,16 +50,47 @@ bootstrap result, and gate decision.
 
 ## Result
 
-Pending the canonical database run and independent review.
+Canonical read-only run completed on 2026-08-24. A second identical run
+produced the same report bytes (SHA-256
+`09527373269013b3c0e13b9a311889fecf7d739cb53f7c5412e399526c2f8b3f`).
+
+| Quantity | Result |
+|---|---:|
+| Eligible team-seasons | 148 |
+| Final games / post-warmup games | 4,111 / 1,017 |
+| Scored holdout games / cells / FGA | 625 / 2,811 / 20,978 |
+| Matchup FGA-weighted MAE | 0.3450624512 PPS |
+| Neutral-baseline FGA-weighted MAE | 0.3463281204 PPS |
+| Relative improvement | 0.3654538% |
+| Paired bootstrap 95% interval | [0.1906364%, 0.5356870%] |
+| Interval coverage (count / FGA weighted) | 1.8499% / 2.3167% |
+
+The result is **FAIL**: the matchup model improves point error slightly, but
+does not reach the preregistered 5% margin. The interval diagnostic is also far
+below nominal coverage, as expected for intervals that do not include shot
+sampling noise; it is descriptive and does not change the gate decision.
+
+Per-season relative improvements were 0.2947% (2024), 0.4584% (2025), and
+0.2910% (2026). The full exclusion breakdown and source digest are in the
+ignored machine-readable report at
+`data/reports/offensive-projection-backtest/issue-0014.json`.
+
+Sprint 3 remains blocked: the projection model must not be activated and T13–T16
+must not ship from this result. GauravR0 review is still required before the
+gate is formally accepted.
 
 ## Ready-to-post update
 
 ### Player-data #14
 
-> T12 backtest result: pending the canonical read-only run and GauravR0 review.
+> T12 backtest result: FAIL. The rolling 2024–2026 holdout scored 625 games,
+> 2,811 cells, and 20,978 FGA. Matchup MAE improved 0.3655% over the neutral
+> player-season baseline (95% paired game bootstrap interval [0.1906%,
+> 0.5357%]), below the preregistered 5% margin. Sprint 3 remains blocked.
 
 ### Frontend #4 §10
 
-> Holdout, baseline, metric, margin, interval handling, and reviewer are
-> preregistered in `docs/OFFENSIVE_PROJECTION_BACKTEST.md`; the gate result will
-> be added after the rolling 2024–2026 run.
+> T12 §10 is answered in `docs/OFFENSIVE_PROJECTION_BACKTEST.md`: the rolling
+> 2024–2026 holdout and neutral-defense player-season baseline were evaluated
+> with a 5% MAE gate, interval coverage was diagnostic-only, and GauravR0 is the
+> required reviewer. The result is FAIL, so Sprint 3 remains blocked.

@@ -474,6 +474,12 @@ is checked in v1 or deferred; who reviews the backtest before merge.
 
 **Answers `#4`:** §10 in full.
 
+**Implementation result (2026-08-24).** The preregistered rolling 2024–2026
+backtest scored 625 games, 2,811 cells, and 20,978 FGA. Matchup MAE improved
+0.3655% over the neutral-defense baseline (paired game-bootstrap 95% interval
+`[0.1906%, 0.5357%]`), below the required 5% margin. T12 is **FAIL** and Sprint
+3 remains blocked. Full protocol and diagnostics: `docs/OFFENSIVE_PROJECTION_BACKTEST.md`.
+
 ---
 
 ### Sprint 3 — Service and surface
