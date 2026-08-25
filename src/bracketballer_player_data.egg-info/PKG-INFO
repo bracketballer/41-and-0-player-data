@@ -1,5 +1,16 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: bracketballer-player-data
 Version: 0.1.0
 Summary: Data ingestion and modeling pipeline for Bracketballer
 Requires-Python: >=3.12
+Requires-Dist: aenum==3.1.17
+Requires-Dist: boto3==1.43.62
+Requires-Dist: cbbd==1.27.3
+Requires-Dist: numpy==2.4.6
+Requires-Dist: pandas==3.0.3
+Requires-Dist: psycopg2-binary==2.9.12
+Requires-Dist: pydantic==1.10.26
+Requires-Dist: python-dateutil==2.9.0.post0
+Requires-Dist: six==1.17.0
+Requires-Dist: typing_extensions==4.15.0
+Requires-Dist: urllib3==2.7.0

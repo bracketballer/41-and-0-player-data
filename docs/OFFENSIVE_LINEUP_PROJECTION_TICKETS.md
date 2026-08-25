@@ -442,6 +442,13 @@ moment this is useful is thirty seconds after they sub, not two minutes later."*
 
 **Answers `#4`:** §8 precomputation-trigger, caching, and where-compute-runs bullets.
 
+Implementation answer: the Python/PostgreSQL precompute runs after the nightly
+shot-location and concession refresh or on explicit pregame opponent
+selection. It writes the complete matchup matrix to V36 and the service reads
+it through the existing lookup index; no model computation runs in the request
+path. For the ten-player Virginia Tech anchor rotation and ten defensive units,
+the matrix is 2,520 rows and is approximately 2.53 MB including its indexes.
+
 ---
 
 #### T12 · PD · Backtest against naive baseline *(MERGE GATE)*
