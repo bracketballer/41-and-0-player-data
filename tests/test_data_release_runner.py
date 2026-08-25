@@ -9,6 +9,7 @@ from scripts.apply_pending_data_releases import (
     descriptor_paths,
     is_local_database,
     read_descriptor,
+    release_lock,
     require_local_database,
 )
 
@@ -28,6 +29,16 @@ class DataReleaseRunnerTests(unittest.TestCase):
         self.assertEqual(descriptor["expected"]["candidate_sha256"], "b55851d4ec42cf1b01be9134f260a50a1624dc0315783839ca0ef75e8d0456c7")
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(descriptor_paths(Path(directory)), [])
+
+    def test_release_lock_blocks_concurrent_acquisition_and_releases_after_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "lock"
+            with release_lock(lock_path) as first_acquired:
+                self.assertTrue(first_acquired)
+                with release_lock(lock_path) as second_acquired:
+                    self.assertFalse(second_acquired)
+            with release_lock(lock_path) as reacquired:
+                self.assertTrue(reacquired)
 
 
 if __name__ == "__main__":
