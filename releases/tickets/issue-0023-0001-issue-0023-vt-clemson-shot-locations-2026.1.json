@@ -1,9 +1,10 @@
 {
   "dataset": "player_shot_event_locations",
   "expected": {
-    "archive_sha256": "2d3caa465b68896292288d0a9ac7b3899d67c87feb17114689fb86739b4f0d30",
-    "checksum_sha256": "20ee4411e0cc1a4d6a035915984ec439360e02a52f7971ec7983e73311aaa789",
-    "manifest_sha256": "1e869059c3dafb75b93f0211ef511e166ed685826bb72f6e68b69aaf8f5bcc5e",
+    "archive_bytes": 74137,
+    "archive_sha256": "32db1780601780230d081b304bf4b5a81cc7e6dbfbdf73f07147fea31ab79e15",
+    "checksum_sha256": "10ff5108a68a347c1f33466badce2a704aec644fa582b5e22b9b327585dee322",
+    "manifest_sha256": "a6f27a2552696dfb4ad3987d611dd3bf94e74759decf30045ce3bf25a4124456",
     "row_counts": {
       "eligible_player_seasons": 20,
       "player_shot_location_profiles": 100,
@@ -25,7 +26,7 @@
     "checksum": "data-releases/tickets/player_shot_event_locations/0023/issue-0023-vt-clemson-shot-locations-2026.1/issue-0023-issue-0023-vt-clemson-shot-locations-2026.1.tar.gz.sha256",
     "manifest": "data-releases/tickets/player_shot_event_locations/0023/issue-0023-vt-clemson-shot-locations-2026.1/issue-0023-issue-0023-vt-clemson-shot-locations-2026.1.tar.json"
   },
-  "pipeline_commit": "aa9c7804e0dfcab532e26b8ba553031ad839e299",
+  "pipeline_commit": "16ecc493ccf522253ab41ce320f3f9371cfe964e",
   "release_sequence": 1,
   "release_version": "issue-0023-vt-clemson-shot-locations-2026.1",
   "required_flyway_checksums": {
