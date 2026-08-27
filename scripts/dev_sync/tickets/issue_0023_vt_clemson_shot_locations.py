@@ -399,8 +399,10 @@ def validate_artifact(root: Path, descriptor: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("issue #23 excluded roster player is malformed")
             team_id = _int(item.get("team_id"), "team_id", item)
             season = _int(item.get("season"), "season", item)
-            minutes = _float(item.get("minutes"), "minutes", item)
-            if team_id not in TEAM_IDS or season != SEASON or minutes is None or minutes >= MIN_ROTATION_MINUTES:
+            minutes = _float(item.get("minutes"), "minutes", item, nullable=True)
+            if team_id not in TEAM_IDS or season != SEASON or (
+                minutes is not None and minutes >= MIN_ROTATION_MINUTES
+            ):
                 raise ValueError("issue #23 excluded roster player is outside the locked scope")
     events, statuses = _validate_event_rows(_read_jsonl(root / EVENT_FILE), metadata, pairs)
     team_totals: dict[str, int] = {str(team): 0 for team in TEAM_IDS}

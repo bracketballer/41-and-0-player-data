@@ -188,7 +188,7 @@ def _load_roster(conn: Any) -> list[dict[str, Any]]:
             SELECT DISTINCT membership.team_id, membership.player_id,
                             membership.season, season_row.minutes
             FROM team_roster_memberships membership
-            JOIN player_seasons season_row
+            LEFT JOIN player_seasons season_row
               ON season_row.player_id = membership.player_id
              AND season_row.team_id = membership.team_id
              AND season_row.season = membership.season
@@ -208,7 +208,7 @@ def _load_roster(conn: Any) -> list[dict[str, Any]]:
         row["team_id"] = int(row["team_id"])
         row["player_id"] = int(row["player_id"])
         row["season"] = int(row["season"])
-        row["minutes"] = float(row["minutes"])
+        row["minutes"] = None if row["minutes"] is None else float(row["minutes"])
     return rows
 
 
@@ -346,8 +346,17 @@ def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
 
     destination.mkdir(parents=True, exist_ok=True)
     all_roster = _load_roster(conn)
-    roster = [row for row in all_roster if float(row["minutes"]) >= MIN_ROTATION_MINUTES]
-    excluded_roster = [row for row in all_roster if float(row["minutes"]) < MIN_ROTATION_MINUTES]
+    roster = [
+        row for row in all_roster
+        if row["minutes"] is not None and float(row["minutes"]) >= MIN_ROTATION_MINUTES
+    ]
+    # Active roster memberships without an active player-season row are also
+    # explicitly unavailable.  They are retained in the artifact rather than
+    # silently disappearing from the locked roster audit.
+    excluded_roster = [
+        row for row in all_roster
+        if row["minutes"] is None or float(row["minutes"]) < MIN_ROTATION_MINUTES
+    ]
     pairs = {(int(row["player_id"]), int(row["season"])) for row in roster}
     if len(roster) != 20 or len(pairs) != 20:
         raise ValueError(f"issue #23 requires exactly 20 eligible player-seasons, got memberships={len(roster)} pairs={len(pairs)}")
@@ -454,7 +463,7 @@ def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
                 "team_id": int(row["team_id"]),
                 "player_id": int(row["player_id"]),
                 "season": int(row["season"]),
-                "minutes": float(row["minutes"]),
+                "minutes": None if row["minutes"] is None else float(row["minutes"]),
                 "availability": "unavailable_below_100_minutes",
             }
             for row in excluded_roster
@@ -509,7 +518,9 @@ def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
     }
     # Top-level aliases preserve the convention used by the earlier ticket
     # artifacts while row_counts remains the canonical exact-count block.
-    metadata.update(row_counts)
+    # ``excluded_sub_rotation_players`` is the audit list at the top level and a
+    # count in row_counts, so aliases must never clobber an existing key.
+    metadata.update({key: value for key, value in row_counts.items() if key not in metadata})
     _write_jsonl_gz(destination / PROFILE_FILE, profiles)
     _write_jsonl_gz(destination / EVENT_FILE, event_rows)
     (destination / METADATA_FILE).write_text(
