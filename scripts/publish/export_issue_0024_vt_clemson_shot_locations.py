@@ -1,4 +1,4 @@
-"""Export the issue #23 Virginia Tech/Clemson 2026 shot-location pilot.
+"""Export the issue #24 Virginia Tech/Clemson 2026 shot-location pilot.
 
 The exporter is intentionally read-only.  It writes a deterministic artifact
 which is later validated and applied by the ticket handler.  Direction is
@@ -44,7 +44,7 @@ TEAM_IDS = (52, 340)  # Clemson, Virginia Tech
 MIN_ROTATION_MINUTES = 100
 SOURCE_PROFILE_VERSION = "shot-location-v1"
 MODEL_VERSION = "shot-location-v1-2026-vt-clemson"
-RELEASE_VERSION = "issue-0023-vt-clemson-shot-locations-2026.1"
+RELEASE_VERSION = "issue-0024-vt-clemson-shot-locations-2026.1"
 SOURCE_PROFILE_RELEASE = "issue-0009-shot-location-2026.1"
 SOURCE_SHOT_RELEASE = "issue-0006-shots-2026.1"
 PROFILE_FILE = "profiles.jsonl.gz"
@@ -341,8 +341,8 @@ def _event_artifact_row(source: Mapping[str, Any], enriched: ShotLocationEvent) 
     }
 
 
-def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
-    """Build all three issue #23 artifact files using a read-only connection."""
+def export_issue_0024(conn: Any, destination: Path) -> dict[str, Any]:
+    """Build all three issue #24 artifact files using a read-only connection."""
 
     destination.mkdir(parents=True, exist_ok=True)
     all_roster = _load_roster(conn)
@@ -359,34 +359,34 @@ def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
     ]
     pairs = {(int(row["player_id"]), int(row["season"])) for row in roster}
     if len(roster) != 20 or len(pairs) != 20:
-        raise ValueError(f"issue #23 requires exactly 20 eligible player-seasons, got memberships={len(roster)} pairs={len(pairs)}")
+        raise ValueError(f"issue #24 requires exactly 20 eligible player-seasons, got memberships={len(roster)} pairs={len(pairs)}")
     if len(excluded_roster) != 7:
-        raise ValueError(f"issue #23 requires exactly seven sub-100-minute roster players, got {len(excluded_roster)}")
+        raise ValueError(f"issue #24 requires exactly seven sub-100-minute roster players, got {len(excluded_roster)}")
     if {int(row["team_id"]) for row in roster} != set(TEAM_IDS):
-        raise ValueError("issue #23 roster scope must contain Clemson and Virginia Tech only")
+        raise ValueError("issue #24 roster scope must contain Clemson and Virginia Tech only")
     player_ids = sorted({pair[0] for pair in pairs})
     profiles = _load_profiles(conn, player_ids)
     if {(int(row["player_id"]), int(row["season"])) for row in profiles} != pairs:
-        raise ValueError("issue #23 profile rows do not cover the eligible player-seasons")
+        raise ValueError("issue #24 profile rows do not cover the eligible player-seasons")
     profile_counts = _profile_counts(profiles)
     if profile_counts["player_shot_location_profiles"] != 100 or profile_counts["profiles_with_five_zones"] != 20:
-        raise ValueError("issue #23 source profiles must contain exactly five audited zones per player-season")
+        raise ValueError("issue #24 source profiles must contain exactly five audited zones per player-season")
     if any({str(row["zone"]) for row in rows} != set(FIELD_GOAL_ZONES) for rows in _group_by_pair(profiles).values()):
-        raise ValueError("issue #23 source profiles contain an incomplete or duplicate zone set")
+        raise ValueError("issue #24 source profiles contain an incomplete or duplicate zone set")
 
     events = _load_events(conn, player_ids)
     if len(events) != 3857:
-        raise ValueError(f"issue #23 source must contain exactly 3857 field-goal events, got {len(events)}")
+        raise ValueError(f"issue #24 source must contain exactly 3857 field-goal events, got {len(events)}")
     if len({int(row["source_play_id"]) for row in events}) != len(events):
-        raise ValueError("issue #23 source contains duplicate source_play_id values")
+        raise ValueError("issue #24 source contains duplicate source_play_id values")
     if any(int(row["source_play_id"]) <= 0 for row in events):
-        raise ValueError("issue #23 source contains invalid source_play_id values")
+        raise ValueError("issue #24 source contains invalid source_play_id values")
     if any(row.get("made") is None for row in events):
-        raise ValueError("issue #23 source field-goal events must all have make/miss values")
+        raise ValueError("issue #24 source field-goal events must all have make/miss values")
     if any((int(row["player_id"]), int(row["season"])) not in pairs for row in events):
-        raise ValueError("issue #23 source event is outside the active roster scope")
+        raise ValueError("issue #24 source event is outside the active roster scope")
     if any(row.get("team_id") not in TEAM_IDS for row in events):
-        raise ValueError("issue #23 source event belongs to an out-of-scope team")
+        raise ValueError("issue #24 source event belongs to an out-of-scope team")
     game_ids = sorted({int(row["game_id"]) for row in events})
     game_events = _load_game_events(conn, game_ids)
     observations = [
@@ -531,9 +531,9 @@ def export_issue_0023(conn: Any, destination: Path) -> dict[str, Any]:
 
 
 # Friendly aliases used by release tooling and tests.
-export = export_issue_0023
-export_artifact = export_issue_0023
-export_scoped_release = export_issue_0023
+export = export_issue_0024
+export_artifact = export_issue_0024
+export_scoped_release = export_issue_0024
 
 
 def main() -> None:
@@ -541,12 +541,12 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     if psycopg2 is None:
-        raise RuntimeError("psycopg2 is required to export issue #23")
+        raise RuntimeError("psycopg2 is required to export issue #24")
     load_env_file()
     conn = psycopg2.connect(connection_dsn())
     conn.set_session(readonly=True)
     try:
-        print(json.dumps(export_issue_0023(conn, args.output_dir), indent=2, sort_keys=True))
+        print(json.dumps(export_issue_0024(conn, args.output_dir), indent=2, sort_keys=True))
     finally:
         conn.close()
 

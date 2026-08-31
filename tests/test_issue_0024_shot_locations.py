@@ -9,8 +9,8 @@ from bracketballer_data.shot_zones import (
     enrich_shot_event,
     enrich_shot_events,
 )
-from scripts.dev_sync.tickets.issue_0023_vt_clemson_shot_locations import validate_artifact
-from scripts.publish.export_issue_0023_vt_clemson_shot_locations import export_issue_0023
+from scripts.dev_sync.tickets.issue_0024_vt_clemson_shot_locations import validate_artifact
+from scripts.publish.export_issue_0024_vt_clemson_shot_locations import export_issue_0024
 
 
 class _StubCursor:
@@ -41,7 +41,7 @@ class _StubConnection:
 
 
 def _build_fixture_connection() -> _StubConnection:
-    """Build a minimal but fully scope-locked issue #23 dataset.
+    """Build a minimal but fully scope-locked issue #24 dataset.
 
     Sized to satisfy every hard-coded lock in the exporter and validator
     (20 eligible player-seasons, 7 sub-100-minute exclusions including one
@@ -99,7 +99,7 @@ def _build_fixture_connection() -> _StubConnection:
     return _StubConnection(roster_rows, profile_rows, event_rows, game_event_rows)
 
 
-class Issue0023EnrichmentTests(unittest.TestCase):
+class Issue0024EnrichmentTests(unittest.TestCase):
     def test_status_precedence_and_no_fabricated_evidence(self):
         missing = enrich_shot_event({"source_play_id": 1, "location_x": None, "location_y": 501}, "left")
         self.assertEqual(missing.mapping_status, "missing_coordinates")
@@ -125,12 +125,12 @@ class Issue0023EnrichmentTests(unittest.TestCase):
         self.assertEqual(result.normalized_coordinates, (10.0, 25.0))
 
 
-class Issue0023ExportMetadataTests(unittest.TestCase):
+class Issue0024ExportMetadataTests(unittest.TestCase):
     def test_excluded_alias_survives_row_counts_merge_and_null_minutes_validates(self):
         connection = _build_fixture_connection()
         with tempfile.TemporaryDirectory() as temporary:
             destination = Path(temporary)
-            metadata = export_issue_0023(connection, destination)
+            metadata = export_issue_0024(connection, destination)
 
             # The historical bug: metadata.update(row_counts) clobbered the
             # 7-entry audit list with row_counts' integer count of 7.
