@@ -27,6 +27,19 @@ ShotZone = Literal[
     "corner_three",
     "above_break_three",
 ]
+MappingStatus = Literal[
+    "mapped",
+    "missing_coordinates",
+    "invalid_coordinates",
+    "unresolved_direction",
+]
+EventMappingStatus = MappingStatus
+MAPPING_STATUSES: tuple[MappingStatus, ...] = (
+    "mapped",
+    "missing_coordinates",
+    "invalid_coordinates",
+    "unresolved_direction",
+)
 
 COURT_LENGTH_TENTHS = 940.0
 COURT_WIDTH_TENTHS = 500.0
@@ -64,6 +77,55 @@ class ShotCoordinate:
     opponent_id: Hashable | None
     period: int | None
     location_x: float | None
+    # Kept optional so existing direction-only callers remain source
+    # compatible.  Enrichment uses both coordinates.
+    location_y: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShotLocationEvent:
+    """Deterministic, database-ready enrichment for one field-goal event.
+
+    ``event_id`` is intentionally generic (normally ``source_play_id``) so
+    the pure transformer can be used by exporters and small audit fixtures.
+    Unmapped rows never carry fabricated coordinates or zones.
+    """
+
+    event_id: Hashable
+    normalized_x: float | None
+    normalized_y: float | None
+    zone: ShotZone | None
+    mapping_status: MappingStatus
+    attacking_basket: AttackingBasket | None = None
+
+    @property
+    def status(self) -> MappingStatus:
+        """Alias used by artifact serializers and callers that say status."""
+
+        return self.mapping_status
+
+    @property
+    def source_play_id(self) -> Hashable:
+        return self.event_id
+
+    @property
+    def normalized_coordinates(self) -> tuple[float, float] | None:
+        if self.normalized_x is None or self.normalized_y is None:
+            return None
+        return self.normalized_x, self.normalized_y
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "normalized_x": self.normalized_x,
+            "normalized_y": self.normalized_y,
+            "zone": self.zone,
+            "mapping_status": self.mapping_status,
+            "attacking_basket": self.attacking_basket,
+        }
+
+
+ShotLocationEnrichment = ShotLocationEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,13 +336,151 @@ def infer_attacking_baskets(
     )
 
 
+def _event_value(event: Any, name: str, default: Any = None) -> Any:
+    if isinstance(event, Mapping):
+        return event.get(name, default)
+    return getattr(event, name, default)
+
+
+def enrich_shot_event(
+    event: Any,
+    attacking_basket: AttackingBasket | None,
+    *,
+    event_id: Hashable | None = None,
+) -> ShotLocationEvent:
+    """Enrich one event with normalized coordinates, zone, and one status.
+
+    Status precedence is deliberate and stable: missing values are reported
+    as ``missing_coordinates``; present but non-finite or out-of-court values
+    as ``invalid_coordinates``; valid coordinates without a direction as
+    ``unresolved_direction``; and only then as ``mapped``.  This makes failed
+    mappings auditable instead of silently dropping them.
+    """
+
+    if attacking_basket not in ("left", "right", None):
+        raise ValueError(f"unsupported attacking basket: {attacking_basket!r}")
+    identifier = event_id if event_id is not None else _event_value(event, "event_id")
+    if identifier is None:
+        identifier = _event_value(event, "source_play_id")
+    if identifier is None:
+        raise ValueError("shot event is missing event_id/source_play_id")
+    raw_x = _event_value(event, "location_x")
+    raw_y = _event_value(event, "location_y")
+    # Missing takes precedence over all other failures, including an invalid
+    # value in the other coordinate.
+    if raw_x is None or raw_y is None:
+        return ShotLocationEvent(identifier, None, None, None, "missing_coordinates", attacking_basket)
+    x = _as_finite_float(raw_x)
+    y = _as_finite_float(raw_y)
+    if x is None or y is None or not (
+        0.0 <= x <= COURT_LENGTH_TENTHS and 0.0 <= y <= COURT_WIDTH_TENTHS
+    ):
+        return ShotLocationEvent(identifier, None, None, None, "invalid_coordinates", attacking_basket)
+    if attacking_basket is None:
+        return ShotLocationEvent(identifier, None, None, None, "unresolved_direction", None)
+    coordinates = normalize_coordinates(x, y, attacking_basket)
+    # normalize_coordinates cannot fail after the checks above, but retaining
+    # this guard keeps the result contract total if the geometry changes.
+    if coordinates is None:
+        return ShotLocationEvent(identifier, None, None, None, "invalid_coordinates", attacking_basket)
+    normalized_x, normalized_y = coordinates
+    zone = classify_shot(x, y, attacking_basket)
+    if zone is None:
+        return ShotLocationEvent(identifier, None, None, None, "invalid_coordinates", attacking_basket)
+    return ShotLocationEvent(
+        identifier, normalized_x, normalized_y, zone, "mapped", attacking_basket
+    )
+
+
+def enrich_shot_events(
+    events: Iterable[Any],
+    *,
+    direction_observations: Iterable[ShotCoordinate] | None = None,
+    all_game_events: Iterable[ShotCoordinate] | None = None,
+) -> list[ShotLocationEvent]:
+    """Enrich events after inferring directions from a complete game sample.
+
+    ``direction_observations`` should contain every field goal in each game,
+    not merely the selected player's attempts.  If omitted, observations are
+    built from ``events`` (convenient for fixtures).  Input and output order is
+    preserved; direction inference itself is deterministic.
+    """
+
+    rows = list(events)
+    if direction_observations is not None and all_game_events is not None:
+        raise ValueError("provide only one complete-game direction sample")
+    if all_game_events is not None:
+        direction_observations = all_game_events
+    if direction_observations is None:
+        observations = [
+            ShotCoordinate(
+                event_id=_event_value(row, "event_id", _event_value(row, "source_play_id")),
+                game_id=_event_value(row, "game_id"),
+                team_id=_event_value(row, "team_id"),
+                opponent_id=_event_value(row, "opponent_id"),
+                period=_event_value(row, "period"),
+                location_x=_event_value(row, "location_x"),
+                location_y=_event_value(row, "location_y"),
+            )
+            for row in rows
+        ]
+    else:
+        observations = [
+            item
+            if isinstance(item, ShotCoordinate)
+            else ShotCoordinate(
+                event_id=_event_value(item, "event_id", _event_value(item, "source_play_id")),
+                game_id=_event_value(item, "game_id"),
+                team_id=_event_value(item, "team_id"),
+                opponent_id=_event_value(item, "opponent_id"),
+                period=_event_value(item, "period"),
+                location_x=_event_value(item, "location_x"),
+                location_y=_event_value(item, "location_y"),
+            )
+            for item in direction_observations
+        ]
+    directions = infer_attacking_baskets(observations)
+    return [
+        enrich_shot_event(
+            row,
+            directions.baskets.get(
+                _event_value(row, "event_id", _event_value(row, "source_play_id"))
+            ),
+        )
+        for row in rows
+    ]
+
+
+# Short aliases make the transformer discoverable without coupling callers to
+# a particular noun used for an event in the ingestion schema.
+enrich_event = enrich_shot_event
+enrich_events = enrich_shot_events
+enrich_event_location = enrich_shot_event
+enrich_event_locations = enrich_shot_events
+enrich_shot_location_events = enrich_shot_events
+enrich_shot_location = enrich_shot_event
+
+
 __all__ = [
     "AttackingBasket",
     "DirectionInference",
+    "EventMappingStatus",
     "FIELD_GOAL_ZONES",
     "ShotCoordinate",
+    "ShotLocationEvent",
+    "ShotLocationEnrichment",
     "ShotZone",
+    "MappingStatus",
+    "MAPPING_STATUSES",
     "classify_shot",
+    "enrich_event",
+    "enrich_event_location",
+    "enrich_event_locations",
+    "enrich_events",
+    "enrich_shot_event",
+    "enrich_shot_events",
+    "enrich_shot_location_events",
+    "enrich_shot_location",
     "infer_attacking_baskets",
     "normalize_coordinates",
 ]
