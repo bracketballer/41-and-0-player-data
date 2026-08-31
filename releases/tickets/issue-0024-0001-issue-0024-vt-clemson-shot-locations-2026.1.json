@@ -1,0 +1,91 @@
+{
+  "dataset": "player_shot_event_locations",
+  "expected": {
+    "archive_bytes": 74137,
+    "archive_sha256": "9dc77d2d7d1fc7dea318e8627751771b157b6d81cf76781fbe392b24fb785aa1",
+    "checksum_sha256": "17f4cdaa424c56a7f702f3febc5cacc9853206c18ca9ebbd894d526fef3af204",
+    "manifest_sha256": "dbc1a19d257254847af8a6ff444d45588051f0ade75e1fd5a943ab245e419479",
+    "row_counts": {
+      "eligible_player_seasons": 20,
+      "player_shot_location_profiles": 100,
+      "profiles_with_five_zones": 20,
+      "event_locations": 3857,
+      "event_location_rows": 3857,
+      "player_shot_event_locations": 3857,
+      "excluded_sub_rotation_players": 7
+    }
+  },
+  "first_season": 2026,
+  "format_version": 1,
+  "handler": "scripts.dev_sync.tickets.issue_0024_vt_clemson_shot_locations",
+  "last_season": 2026,
+  "model_version": "shot-location-v1-2026-vt-clemson",
+  "team_ids": [52, 340],
+  "objects": {
+    "archive": "data-releases/tickets/player_shot_event_locations/0024/issue-0024-vt-clemson-shot-locations-2026.1/issue-0024-issue-0024-vt-clemson-shot-locations-2026.1.tar.gz",
+    "checksum": "data-releases/tickets/player_shot_event_locations/0024/issue-0024-vt-clemson-shot-locations-2026.1/issue-0024-issue-0024-vt-clemson-shot-locations-2026.1.tar.gz.sha256",
+    "manifest": "data-releases/tickets/player_shot_event_locations/0024/issue-0024-vt-clemson-shot-locations-2026.1/issue-0024-issue-0024-vt-clemson-shot-locations-2026.1.tar.json"
+  },
+  "pipeline_commit": "46339881e22d551a364f17210dda06a6a2bfec4e",
+  "release_sequence": 1,
+  "release_version": "issue-0024-vt-clemson-shot-locations-2026.1",
+  "required_flyway_checksums": {
+    "35": 1162551216,
+    "36": 211131866,
+    "37": 1924853022
+  },
+  "schema_dependency": {
+    "commit": "3dc44d060dc95cae52e8c49c192c093db694cfad",
+    "flyway_checksums": {
+      "35": 1162551216,
+      "36": 211131866,
+      "37": 1924853022
+    },
+    "flyway_version": "37",
+    "ref": "develop",
+    "repository": "bracketballer/fastify"
+  },
+  "source_dependencies": [
+    {
+      "dataset": "eligible_team_shot_events",
+      "import_version": "issue-0006-shots-2026.1",
+      "archive_sha256": "0754742140a5dc14e41972e03542a6ce77f63bdbd8be15233502d82625b4bff1"
+    },
+    {
+      "dataset": "ap_top25_vt_rosters_lineups",
+      "import_version": "ranked-rosters-2026-08-23.2",
+      "archive_sha256": "5da5f09f1bd4a12d340087c7f788e8147ddb4c5db090b5ffe429655d07df061d"
+    },
+    {
+      "dataset": "shot_location_profiles",
+      "import_version": "issue-0009-shot-location-2026.1",
+      "archive_sha256": "1113091d079a0366e61788d3ec6c69697a04338a9ffaf8dd73a22f355c166fe8"
+    }
+  ],
+  "source_releases": {
+    "shot_corpus": "issue-0006-shots-2026.1",
+    "ranked_rosters": "ranked-rosters-2026-08-23.2",
+    "audited_profiles": "issue-0009-shot-location-2026.1"
+  },
+  "dependencies": [
+    {
+      "descriptor": "issue-0006-0001-issue-0006-shots-2026.1.json",
+      "dataset": "eligible_team_shot_events",
+      "release_version": "issue-0006-shots-2026.1",
+      "archive_sha256": "0754742140a5dc14e41972e03542a6ce77f63bdbd8be15233502d82625b4bff1"
+    },
+    {
+      "descriptor": "ranked-rosters-2026-08-23.2.json",
+      "dataset": "ranked_rosters",
+      "release_version": "ranked-rosters-2026-08-23.2",
+      "archive_sha256": "5da5f09f1bd4a12d340087c7f788e8147ddb4c5db090b5ffe429655d07df061d"
+    },
+    {
+      "descriptor": "issue-0009-0001-issue-0009-shot-location-2026.1.json",
+      "dataset": "shot_location_profiles",
+      "release_version": "issue-0009-shot-location-2026.1",
+      "archive_sha256": "1113091d079a0366e61788d3ec6c69697a04338a9ffaf8dd73a22f355c166fe8"
+    }
+  ],
+  "ticket_number": 24
+}
